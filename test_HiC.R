@@ -1,11 +1,12 @@
-# Hi-C_analysis
+#Hi-C_analysis
 
 ## Quick Description 
-# This project gathers all the chunks of code in relation to Hi-C data analysis.
-#Data were retrieved from *Rajarajan et al 2018*(1) and available on Psychencode Synapse Platform.
+# his project gathers all the chunks of code in relation to Hi-C data analysis.
+#Data were retrieved from Rajarajan et al 2018 (1) and available on Psychencode Synapse Platform.
 #Our goal is to integrate the non-coding regions of the genome in rare association test variants, with respect to 3D genome contacts. 
 #So, first of all, we start by annoting genes and enhancers which are present in contact locus from the Hi-C file. 
-#Some statistical analysis were made to detect peak enrichment in Hi-C 3D contact data with *HiCCUPS*(2) software. HiCCUPS implements methodology for detecting peaks provided from *Rao et al 2014*.
+#Some statistical analysis were made to detect peak enrichment in Hi-C 3D contact data with HiCCUPS(2) software. 
+#HiCCUPS implements methodology for detecting peaks provided from Rao et al 2014.
 
 #ALL useful librairies for annotations of contacts regions and gene-enhancer clusters analysis
 library(GenomicRanges)
@@ -215,7 +216,11 @@ length(unique(df.genes.enh$geneSymbol))
 length(unique(df.genes.enh$enhancerstart, df.genes.enh$enhancerstop))
 
 #In previous work we work on MCF7 data extracted from Wu et al 2018 to analyze cluster of gene-enhancer based on their contacts
-#We apply MCF7 methodology here
+#We apply MCF7 methodology here...
+#Non redundant Genome coverage by enhancers
+enhancers <- IRanges(start = df.genes.enh$enhancerstart , end = df.genes.enh$enhancerstop)
+sum(width(reduce(enhancers)))
+
 df.genes.enh$enhancer <- paste(df.genes.enh$enhancerstart, df.genes.enh$enhancerstop)
 
 agg.table.enhancers <- aggregate(geneSymbol~enhancer, data=df.genes.enh, unique, na.rm=TRUE)
@@ -228,7 +233,6 @@ barplot(table(sapply(agg.table.enhancers$geneSymbol, length)), main = "Distribut
 barplot(table(sapply(agg.table.genes$enhancer, length)), main = "Distribution of number of enhancers associated by genes", xlab = "Number of enhancers associated", ylab = "Frequency")
 
 #Overlapping analysis
-
 test.overlapping <- function(TSS.gene,TES.gene, enhS, enhE) {
   if(TSS.gene > enhE){
     
@@ -246,6 +250,73 @@ test.overlapping <- function(TSS.gene,TES.gene, enhS, enhE) {
 
 df.genes.enh$overlapping <- mapply(test.overlapping, df.genes.enh$TSS, df.genes.enh$TES, df.genes.enh$enhancerstart, df.genes.enh$enhancerstop)
 head(df.genes.enh)
+
 barplot(table(df.genes.enh$overlapping), main = "Barplot of enhancer position in relation to his gene")
 
+#Quantile Coverage analysis by overlapping status 
+df.genes.enh$width.enh <- df.genes.enh$enhancerstop - df.genes.enh$enhancerstart
+quant.overlapping <- aggregate(width.enh ~ overlapping, data=df.genes.enh, FUN = "quantile" ,probs=c(0.25, 0.50,0.75))
+quant.overlapping
+
+hist(df.genes.enh$width.enh)
+
+contact.func <- function(col.to.agg, data){
+  library(data.table)
+  tmp <- copy(data)
+  
+  #If column which wants to aggregate has a type list, one more conversion step is needed
+  tmp$col1.bis <- as.character(lapply(tmp[,col.to.agg], FUN = function(x) paste(x, collapse = "-")))
+  
+  if(col.to.agg == "geneSymbol") {
+    tmp.agg.qual <- aggregate(enhancer ~ col1.bis, data = tmp, length)
+    tmp.agg.qual$N.genes <- as.numeric(lapply(strsplit(tmp.agg.qual$col1.bis, "-"), length))
+    tmp.agg.quant <- as.data.frame(table(tmp.agg.qual$N.genes, tmp.agg.qual$enhancer))
+    colnames(tmp.agg.quant) <- c("N.Genes", "N.Enhancers", "N")
+    
+    tmp.agg.quant <- tmp.agg.quant[!tmp.agg.quant$N == 0,]
+    
+  }
+  
+  else{
+    tmp.agg.qual <- aggregate(geneSymbol ~ col1.bis, data = tmp, length)
+    tmp.agg.qual$N.genes <- as.numeric(lapply(strsplit(tmp.agg.qual$col1.bis, "-"), length))
+    tmp.agg.quant <- as.data.frame(table(tmp.agg.qual$N.genes, tmp.agg.qual$geneSymbol))
+    colnames(tmp.agg.quant) <- c("N.Enhancers", "N.Genes", "N")
+    
+    tmp.agg.quant <- tmp.agg.quant[!tmp.agg.quant$N == 0,]
+  }
+  
+  
+  list("qualitative_asso"= tmp.agg.qual, "quantitative_asso"= tmp.agg.quant)
+}
+
+analysis.g_e <- contact.func("geneSymbol",agg.table.enhancers)
+head(analysis.g_e$quantitative_asso)
+
+analysis.e_g <- contact.func("enhancer", agg.table.genes)
+head(analysis.e_g$quantitative_asso)
+
+#Linear mapping between genes and enhancers
+plot(df.genes.enh$TSS, df.genes.enh$enhancerstop)
+#It seems that there is a perfectly linear relation between genes and enhancers
+
+#Network analysis from gene-enhancer clusters 
+library(igraph)
+
+genes <- matrix(df.genes.enh$geneSymbol, ncol = 1)
+enh <- matrix(df.genes.enh$enhancer, ncol = 1)
+
+nodes.g_e <- as.data.frame(rbind(genes,enh))
+colnames(nodes.g_e) <- "id"
+
+nodes.g_e[1:nrow(genes),"type"] <- "gene"
+nodes.g_e[1:nrow(genes),"col"] <- "orange"
+nodes.g_e[nrow(genes)+1:nrow(nodes.g_e),"type"] <- "enhancer"
+nodes.g_e[nrow(genes)+1:nrow(nodes.g_e),"col"] <- "blue"
+
+links.g_e <- df.genes.enh[,c("geneSymbol", "enhancer")]
+links.g_e$weight <- 1
+
+net <- graph_from_data_frame(d=links.g_e,vertices = unique(na.omit(nodes.g_e)) ,directed = F)
+plot(net, vertex.label=NA, vertex.size = 2,asp=.35, margin=-.1, vertex.color = nodes.g_e$col)
 
