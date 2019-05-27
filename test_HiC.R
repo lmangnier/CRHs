@@ -17,6 +17,7 @@ library(TxDb.Hsapiens.UCSC.hg19.knownGene)
 library(rtracklayer)
 library(karyoploteR)
 library(ggplot2)
+library(igraph)
 library(FantomEnhancers.hg19)
 
 setwd("/home/nash/Documents/Psychencode/data/")
@@ -301,8 +302,6 @@ plot(df.genes.enh$TSS, df.genes.enh$enhancerstop)
 #It seems that there is a perfectly linear relation between genes and enhancers
 
 #Network analysis from gene-enhancer clusters 
-library(igraph)
-
 genes <- matrix(df.genes.enh$geneSymbol, ncol = 1)
 enh <- matrix(df.genes.enh$enhancer, ncol = 1)
 
@@ -311,12 +310,17 @@ colnames(nodes.g_e) <- "id"
 
 nodes.g_e[1:nrow(genes),"type"] <- "gene"
 nodes.g_e[1:nrow(genes),"col"] <- "orange"
+
 nodes.g_e[nrow(genes)+1:nrow(nodes.g_e),"type"] <- "enhancer"
 nodes.g_e[nrow(genes)+1:nrow(nodes.g_e),"col"] <- "blue"
 
 links.g_e <- df.genes.enh[,c("geneSymbol", "enhancer")]
 links.g_e$weight <- 1
 
-net <- graph_from_data_frame(d=links.g_e,vertices = unique(na.omit(nodes.g_e)) ,directed = F)
-plot(net, vertex.label=NA, vertex.size = 2,asp=.35, margin=-.1, vertex.color = nodes.g_e$col)
+nodes.g_e <- unique(na.omit(nodes.g_e))
+
+net <- graph_from_data_frame(d=links.g_e,vertices = nodes.g_e ,directed = F)
+plot(net, vertex.label=NA, vertex.size = 2, margin=-.1,asp=.35, vertex.color = nodes.g_e$col, edge.color = "red",main="Clustering based on gene-enhancer contacts")
+legend(x=0, y=-1.1, c("gene","enhancer"), pch=21,
+        col="#777777", pt.bg=unique(nodes.g_e$col), pt.cex=2, cex=.8, bty="n", ncol=1)
 
