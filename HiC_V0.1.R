@@ -413,6 +413,7 @@ plot(comm, net,vertex.label=NA, vertex.size = 2, margin=-.1,asp=.35,main="Gene-E
 #Because of same genes present in a same enhancer-only cluster have the same regulatory functions
 #I filter on the communities which have more 2 elements inside and I make GO annotations
 #First test of GO annotation with the most connected cluster
+#WIP
 geneS <- c("MATN1","PTPRU")
 
 ensembl = useMart("ensembl",dataset="hsapiens_gene_ensembl")
@@ -427,6 +428,7 @@ results[results$namespace_1003 == "biological_process",]
 
 #Epigenomics Roadmap: 25 imputation states-model
 #The method is presented in Epigenomics Roadmap Consortium, 2015
+#WIP
 epg_states_models <- import("enhancers/E081_25_imputed12marks_dense.bed", format="bed")
 head(epg_states_models)
 length(unique(epg_states_models))
