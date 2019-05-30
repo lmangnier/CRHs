@@ -359,7 +359,7 @@ plot(df.genes.enh$TSS, df.genes.enh$enhancerstop)
 #It seems that there is a perfectly linear relation between genes and enhancers
 
 #Network analysis from gene-enhancer clusters 
-#Our networks non-oriented "full-connected" : we can link all cluster element by at least one indirect connection
+#Our networks non-oriented "full-connected": we can link all cluster element by at least one indirect connection
 genes <- matrix(df.genes.enh$geneSymbol, ncol = 1)
 enh <- matrix(df.genes.enh$enhancer, ncol = 1)
 enh.c  <- enhancer.contacts[,c("enhancer1","enhancer2")]
