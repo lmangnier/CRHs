@@ -565,8 +565,14 @@ transitivity(net.epg)
 #Here we have 389 distincts communities
 components(net.epg)$no
 #[1] 17
-#Average number of components in communities
+#Average number of vertices in components
 mean(components(net.epg)$csize)
+#[1] 19.29412
+# Distribution of component sizes
+table(components(net.epg)$csize)
+
+#2   3   4 287 
+#9   5   2   1 
 
 #Here we define a cluster which is full-connected between all of its elements
 comm.epg <- cluster_infomap(net.epg)
