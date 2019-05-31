@@ -578,6 +578,7 @@ compo.epg$no
 #Average number of vertices in components
 mean(compo.epg$csize)
 #[1] 2.97
+
 # Distribution of component sizes
 table(compo.epg$csize)
 
@@ -586,6 +587,8 @@ n.enhancers <- length(unique(df.genes.enh.epg$enhancer))
 
 one.g.one.e <- table(compo.epg$csize)[1][[1]]
 one.g.one.e / n.genes ; one.g.one.e/n.enhancers
+#[1] 0.3775065
+#[1] 0.3497577
 
 #Extraction of the larger network and summary analysis
 larger<- which.max(table(compo.epg$membership))
@@ -614,6 +617,7 @@ findOverlaps(genes.cvg, enh.cvg)
 comm.larger <- cluster_infomap(larger.graph)
 plot(comm.larger, larger.graph,vertex.size = 1.5, margin=-.1,asp=.25,vertex.color = larger.node$col, edge.color = "red",main="Gene-Enhancer Community Clusters based on their contacts for the larger network")
 
+#GO for larger network
 geneS <- unique(tmp.cvg$geneSymbol)
 
 ensembl = useMart("ensembl",dataset="hsapiens_gene_ensembl")
