@@ -24,7 +24,7 @@ library(FantomEnhancers.hg19)
 clean.hic <- read.table(file.choose(),header = TRUE, sep="\t")
 
 #Let's take a look on initial data
-head(clean.hic.neu)
+head(clean.hic)
 
 #As we're working on schizophrenia an bipolar troubles, we just retrieve data from neurons
 clean.hic.neu <- clean.hic[clean.hic$Cell == "Neu",]
@@ -429,14 +429,17 @@ results <- getBM(attributes = c('hgnc_symbol',"namespace_1003", "name_1006"),
 #The method of functionnal annotations based on modification of histone patterns is presented in Epigenomics Roadmap Consortium, 2015
 #For this enhancer annotation file, we make the analysis than previous
 epg_state_model <- import("/home/nash/Documents/Psychencode/data/enhancers/E081_15_coreMarks_dense.bed", format="bed")
-head(epg_states_models)
+head(epg_state_model)
 
 #Distribution of different states present in the file 
 dist.states <-table(mcols(epg_state_model)$name)
 dist.states
 barplot(sort((dist.states)/sum(dist.states))*100,las =2)
 
-epg_state_model_filter <- mcols(epg_state_model)$name %in% c("6_EnhG","7_Enh")
+#epg_state_model_filter <- mcols(epg_state_model)$name %in% c("6_EnhG","7_Enh")
+# In the file https://egg2.wustl.edu/roadmap/data/byFileType/chromhmmSegmentations/ChmmModels/coreMarks/indivModels/default_init/E081/n15/
+# enhancer states are designated 6 and 7.
+epg_state_model_filter <- mcols(epg_state_model)$name %in% c("6","7")
 epg_state_model <- epg_state_model[epg_state_model_filter]
 
 enhancers.epg.Y <- enhancers.annotations(epg_state_model,contacts.locus$Y)
@@ -529,7 +532,7 @@ colnames(nodes.g_e.epg) <- "id"
 nodes.g_e.epg$type <- ifelse(nodes.g_e.epg$id%in%genes.epg, "gene","enhancer")
 nodes.g_e.epg$col<- ifelse(nodes.g_e.epg$type == "gene", "orange","blue")
 nodes.g_e.epg <- unique(nodes.g_e.epg)
-head(nodes.g_e)
+head(nodes.g_e.epg)
 
 links.g_e.epg <- df.genes.enh.epg[,c("geneSymbol", "enhancer")]
 colnames(links.g_e.epg) <- c("from","to")
@@ -560,7 +563,8 @@ edge_density(net.epg)
 transitivity(net.epg)
 
 #Here we have 389 distincts communities
-components(net)
+components(net.epg)$no
+#[1] 17
 #Average number of components in communities
 mean(components(net.epg)$csize)
 
