@@ -477,7 +477,12 @@ enhancers.epg.X <- enhancers.annotations(epg_state_model,contacts.locus$X1)
 names(enhancers.epg.Y) <- 1:length(enhancers.epg.Y)
 names(enhancers.epg.X) <- 1:length(enhancers.epg.X)
 
-table(!is.na(mcols(enhancers.epg.Y)$enhancerstart));table(!is.na(mcols(enhancers.epg.X)$enhancerstart))
+table(!is.na(mcols(enhancers.epg.Y)$enhancerstart));
+#FALSE  TRUE 
+#1439  1032 
+table(!is.na(mcols(enhancers.epg.X)$enhancerstart))
+#FALSE  TRUE 
+#1402  1069 
 
 #Here we define the enhancer-enhancer contacts
 #Because of data is full, we just concatenate the two ranges
@@ -582,6 +587,8 @@ mean(compo.epg$csize)
 
 # Distribution of component sizes
 table(compo.epg$csize)
+#  2   3   4   5   6   7   8  10  13 
+#433 236 186  38  17  10   3   1   1 
 
 n.genes <- length(unique(df.genes.enh.epg$geneSymbol))
 n.enhancers <- length(unique(df.genes.enh.epg$enhancer))
