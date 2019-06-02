@@ -598,6 +598,30 @@ one.g.one.e / n.genes ; one.g.one.e/n.enhancers
 #[1] 0.3775065
 #[1] 0.3497577
 
+# Statistiques par cluster
+gene_enhancer_clusters = tapply(names(compo.epg$membership),compo.epg$membership,function(vec,genes) table(vec%in%genes),genes=df.genes.enh.epg$geneSymbol)
+length(gene_enhancer_clusters)
+gene_enhancer_clusters.mat = matrix(unlist(gene_enhancer_clusters),length(gene_enhancer_clusters),2,byrow = T)
+head(gene_enhancer_clusters.mat)
+# Analysis by gene
+tapply(gene_enhancer_clusters.mat[,1],gene_enhancer_clusters.mat[,2],summary)
+# Analysis by enhancer
+tapply(gene_enhancer_clusters.mat[,2],gene_enhancer_clusters.mat[,1],summary)
+
+# Proportion of genes with a single enhancer
+sum(gene_enhancer_clusters.mat[gene_enhancer_clusters.mat[,1]==1,2])/n.genes
+#[1] 0.3653008
+# Proportion of enhancers linked to a single gene
+sum(gene_enhancer_clusters.mat[gene_enhancer_clusters.mat[,2]==1,1])/n.enhancers
+#[1] 0.7851373
+
+# Total cluster length
+longueur.cluster  = tapply(pmax(df.genes.enh.epg$enhancerstop,df.genes.enh.epg$TES),compo.epg$membership[df.genes.enh.epg$geneSymbol],max) - tapply(pmin(df.genes.enh.epg$enhancerstart,df.genes.enh.epg$TSS),compo.epg$membership[df.genes.enh.epg$geneSymbol],min)
+summary(longueur.cluster)
+#Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#42137  209249  370407  534965  657837 5789608 
+
+
 #Extraction of the larger network and summary analysis
 larger<- which.max(table(compo.epg$membership))
 
