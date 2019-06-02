@@ -457,8 +457,9 @@ results <- getBM(attributes = c('hgnc_symbol',"namespace_1003", "name_1006"),
 
 #Epigenomics Roadmap: 15 state-model
 #The method of functionnal annotations based on modification of histone patterns is presented in Epigenomics Roadmap Consortium, 2015
-#For this enhancer annotation file, we make the analysis than previous
-epg_state_model <- import("/home/nash/Documents/Psychencode/data/enhancers/E081_15_coreMarks_dense.bed", format="bed")
+#File from https://egg2.wustl.edu/roadmap/data/byFileType/chromhmmSegmentations/ChmmModels/coreMarks/jointModel/final/
+#For this enhancer annotation file, we perform the same analysis as above
+epg_state_model <- import("E081_15_coreMarks_dense.bed", format="bed")
 head(epg_state_model)
 
 #Distribution of different states present in the file 
