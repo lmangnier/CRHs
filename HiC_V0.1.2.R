@@ -457,8 +457,9 @@ results <- getBM(attributes = c('hgnc_symbol',"namespace_1003", "name_1006"),
 
 #Epigenomics Roadmap: 15 state-model
 #The method of functionnal annotations based on modification of histone patterns is presented in Epigenomics Roadmap Consortium, 2015
-#For this enhancer annotation file, we make the analysis than previous
-epg_state_model <- import("/home/nash/Documents/Psychencode/data/enhancers/E081_15_coreMarks_dense.bed", format="bed")
+#File from https://egg2.wustl.edu/roadmap/data/byFileType/chromhmmSegmentations/ChmmModels/coreMarks/jointModel/final/
+#For this enhancer annotation file, we perform the same analysis as above
+epg_state_model <- import("E081_15_coreMarks_dense.bed", format="bed")
 head(epg_state_model)
 
 #Distribution of different states present in the file 
@@ -476,7 +477,12 @@ enhancers.epg.X <- enhancers.annotations(epg_state_model,contacts.locus$X1)
 names(enhancers.epg.Y) <- 1:length(enhancers.epg.Y)
 names(enhancers.epg.X) <- 1:length(enhancers.epg.X)
 
-table(!is.na(mcols(enhancers.epg.Y)$enhancerstart));table(!is.na(mcols(enhancers.epg.X)$enhancerstart))
+table(!is.na(mcols(enhancers.epg.Y)$enhancerstart));
+#FALSE  TRUE 
+#1439  1032 
+table(!is.na(mcols(enhancers.epg.X)$enhancerstart))
+#FALSE  TRUE 
+#1402  1069 
 
 #Here we define the enhancer-enhancer contacts
 #Because of data is full, we just concatenate the two ranges
@@ -581,6 +587,8 @@ mean(compo.epg$csize)
 
 # Distribution of component sizes
 table(compo.epg$csize)
+#  2   3   4   5   6   7   8  10  13 
+#433 236 186  38  17  10   3   1   1 
 
 n.genes <- length(unique(df.genes.enh.epg$geneSymbol))
 n.enhancers <- length(unique(df.genes.enh.epg$enhancer))
@@ -589,6 +597,30 @@ one.g.one.e <- table(compo.epg$csize)[1][[1]]
 one.g.one.e / n.genes ; one.g.one.e/n.enhancers
 #[1] 0.3775065
 #[1] 0.3497577
+
+# Statistiques par cluster
+gene_enhancer_clusters = tapply(names(compo.epg$membership),compo.epg$membership,function(vec,genes) table(vec%in%genes),genes=df.genes.enh.epg$geneSymbol)
+length(gene_enhancer_clusters)
+gene_enhancer_clusters.mat = matrix(unlist(gene_enhancer_clusters),length(gene_enhancer_clusters),2,byrow = T)
+head(gene_enhancer_clusters.mat)
+# Analysis by gene
+tapply(gene_enhancer_clusters.mat[,1],gene_enhancer_clusters.mat[,2],summary)
+# Analysis by enhancer
+tapply(gene_enhancer_clusters.mat[,2],gene_enhancer_clusters.mat[,1],summary)
+
+# Proportion of genes with a single enhancer
+sum(gene_enhancer_clusters.mat[gene_enhancer_clusters.mat[,1]==1,2])/n.genes
+#[1] 0.3653008
+# Proportion of enhancers linked to a single gene
+sum(gene_enhancer_clusters.mat[gene_enhancer_clusters.mat[,2]==1,1])/n.enhancers
+#[1] 0.7851373
+
+# Total cluster length
+longueur.cluster  = tapply(pmax(df.genes.enh.epg$enhancerstop,df.genes.enh.epg$TES),compo.epg$membership[df.genes.enh.epg$geneSymbol],max) - tapply(pmin(df.genes.enh.epg$enhancerstart,df.genes.enh.epg$TSS),compo.epg$membership[df.genes.enh.epg$geneSymbol],min)
+summary(longueur.cluster)
+#Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#42137  209249  370407  534965  657837 5789608 
+
 
 #Extraction of the larger network and summary analysis
 larger<- which.max(table(compo.epg$membership))
