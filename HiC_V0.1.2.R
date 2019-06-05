@@ -344,8 +344,8 @@ kp.genes <- plotKaryotype(genome="hg19")
 kpPlotDensity(kp.genes, data=unified.genes)
 
 #Have enhancers for each genes, data are extracted from Fantom5
-#Data are available on repo
-load("/home/nash/Documents/Psychencode/data/enhancers/neurons_enhancers.RData")
+#Data are available on Github repo
+load(file.choose())
 #Let's take a look on data 
 head(neurons_enhancers)
 
@@ -458,6 +458,7 @@ table(compo.FANTOM$csize)
 #We choose this kind of annotations because Won et al 2016 used this methodology for annotating their Hi-C contacts files
 #WE focus on Epigenomics Roadmap: 15 state-model
 #The method of functionnal annotations based on modification of histone patterns is presented in Epigenomics Roadmap Consortium, 2015
+#Data are available on Github repo
 
 #File from https://egg2.wustl.edu/roadmap/data/byFileType/chromhmmSegmentations/ChmmModels/coreMarks/jointModel/final/
 
@@ -490,19 +491,19 @@ sum(width(reduce(genes.EGRM)))
 #[1] 188602968
 
 #Linear mapping between genes and enhancers, here we filter by chromosomes
-#for(chr in unique(genes.enhancers.EGRM$chr)){
-#  pdf(paste0("/home/nash/Documents/Psychencode/output/linear_mapping/linear_mapping_",chr,".pdf"))
-#  tmp.chr <- genes.enhancers.EGRM[genes.enhancers.EGRM$chr==chr,]
-#  plot(tmp.chr$TSS, tmp.chr$enhancerstop, main=paste("Linear Mapping for ",chr), xlab="TSS", ylab="enhancerstop")
-#  dev.off()
-#}
+for(chr in unique(genes.enhancers.EGRM$chr)){
+  pdf(paste0("/home/nash/Documents/Psychencode/output/linear_mapping/linear_mapping_",chr,".pdf"))
+  tmp.chr <- genes.enhancers.EGRM[genes.enhancers.EGRM$chr==chr,]
+  plot(tmp.chr$TSS, tmp.chr$enhancerstop, main=paste("Linear Mapping for ",chr), xlab="TSS", ylab="enhancerstop")
+  dev.off()
+}
 
 #Density superpostion between genes and enhancers from Epigenomic Roadmap
-#col1 <- rgb(0,0,255, max=255, alpha=50)
-#col2 <- rgb(0,255,0, max=255, alpha=50)
-#kp <- plotKaryotype()
-#kpPlotDensity(kp, enhancers.EGRM, col=col1)
-#kpPlotDensity(kp, genes.EGRM,col=col2)
+col1 <- rgb(0,0,255, max=255, alpha=50)
+col2 <- rgb(0,255,0, max=255, alpha=50)
+kp <- plotKaryotype()
+kpPlotDensity(kp, enhancers.EGRM, col=col1)
+kpPlotDensity(kp, genes.EGRM,col=col2)
 
 #Linear mapping on 500kbp window to determine proximity between genes based on enhancerstop
 ex.chr12 <- genes.enhancers.EGRM[genes.enhancers.EGRM$chr=="chr12",]
@@ -522,18 +523,18 @@ text(vec.X, vec.Y, ex.chr12[ex.chr12$TSS<=5000000,]$geneSymbol,cex=0.6,col="red"
 
 
 #Create useful data to igraph analysis, because of the high number of data and to improve the graph quality we perform the vizualisation by chromosomes
-#for(chr in unique(genes.enhancers.EGRM$chr)){
-  #pdf(paste0("/home/nash/Documents/Psychencode/output/networks/cluster_network",chr,".pdf"))
-  #tmp.genes.enhancers <- genes.enhancers.EGRM[genes.enhancers.EGRM$chr==chr,]
-  #tmp.enhancers.enhancers <- enhancers.enhancers.EGRM[enhancers.enhancers.EGRM$chr1 == chr,]
-  #tmp.nodes <- create.igraph.matrix(tmp.genes.enhancers, tmp.enhancers.enhancers)$nodes
-  #tmp.links <- create.igraph.matrix(tmp.genes.enhancers, tmp.enhancers.enhancers)$links
-  #network <- graph_from_data_frame(d=tmp.links,vertices = tmp.nodes,directed = F)
-  #plot(network, vertex.label=NA, vertex.size = 2, margin=-.1,asp=.35, vertex.color = tmp.nodes$col, edge.color = "green",main=paste("Clustering based on Gene-Enhancer contacts: ", chr))
-  #legend(x=0, y=-1.3, c("gene","enhancer"), pch=21,
-  #       col="#777777", pt.bg=unique(tmp.nodes$col), pt.cex=2, cex=.8, bty="n", ncol=1)
- # dev.off()
-#}
+for(chr in unique(genes.enhancers.EGRM$chr)){
+  pdf(paste0("/home/nash/Documents/Psychencode/output/networks/cluster_network",chr,".pdf"))
+  tmp.genes.enhancers <- genes.enhancers.EGRM[genes.enhancers.EGRM$chr==chr,]
+  tmp.enhancers.enhancers <- enhancers.enhancers.EGRM[enhancers.enhancers.EGRM$chr1 == chr,]
+  tmp.nodes <- create.igraph.matrix(tmp.genes.enhancers, tmp.enhancers.enhancers)$nodes
+  tmp.links <- create.igraph.matrix(tmp.genes.enhancers, tmp.enhancers.enhancers)$links
+  network <- graph_from_data_frame(d=tmp.links,vertices = tmp.nodes,directed = F)
+  plot(network, vertex.label=NA, vertex.size = 2, margin=-.1,asp=.35, vertex.color = tmp.nodes$col, edge.color = "green",main=paste("Clustering based on Gene-Enhancer contacts: ", chr))
+  legend(x=0, y=-1.3, c("gene","enhancer"), pch=21,
+         col="#777777", pt.bg=unique(tmp.nodes$col), pt.cex=2, cex=.8, bty="n", ncol=1)
+  dev.off()
+}
 
 nodes.EGRM <- create.igraph.matrix(genes.enhancers.EGRM, enhancers.enhancers.EGRM)$nodes
 links.EGRM <- create.igraph.matrix(genes.enhancers.EGRM, enhancers.enhancers.EGRM)$links
@@ -606,10 +607,10 @@ summary(longueur.cluster)
 #42137  209249  370407  534965  657837 5789608 
 
 #Extraction of the larger network and summary analysis
-#larger<- which.max(table(compo.epg$membership))
-#larger.node <- nodes.epg[compo.epg$membership == larger[[1]],]
-#larger.links <- links.EGRM[links.EGRM$from%in%larger.node$id | links.EGRM$to%in% larger.node$id,]
-#larger.graph = graph_from_data_frame(d=larger.links,directed=F,vertices=larger.node)
-#V(larger.graph)$label.cex = 0.5
-#V(larger.graph)$label.color = larger.node$col
-#plot(larger.graph,vertex.size = 1.5, margin=-.1,asp=.25,vertex.color = larger.node$col, edge.color = "red",main="Larger Network")
+larger<- which.max(table(compo.epg$membership))
+larger.node <- nodes.epg[compo.epg$membership == larger[[1]],]
+larger.links <- links.EGRM[links.EGRM$from%in%larger.node$id | links.EGRM$to%in% larger.node$id,]
+larger.graph = graph_from_data_frame(d=larger.links,directed=F,vertices=larger.node)
+V(larger.graph)$label.cex = 0.5
+V(larger.graph)$label.color = larger.node$col
+plot(larger.graph,vertex.size = 1.5, margin=-.1,asp=.25,vertex.color = larger.node$col, edge.color = "red",main="Larger Network")
