@@ -517,7 +517,7 @@ for(i in 1:length(lm$residuals)){
   }
 }
 plot(vec.X, vec.Y,
-     xlab="TSS",ylab="enhancerstop", main="Linear mapping on 500kbp window to determine proximity between genes")
+     xlab="TSS",ylab="enhancerstop", main="Linear mapping on 5Mbp window to determine proximity between genes")
 text(vec.X, vec.Y, ex.chr12[ex.chr12$TSS<=5000000,]$geneSymbol,cex=0.6,col="red")
 
 
