@@ -490,36 +490,14 @@ sum(width(reduce(enhancers.EGRM)))
 sum(width(reduce(genes.EGRM)))
 #[1] 188602968
 
-#Linear mapping between genes and enhancers, here we filter by chromosomes
-for(chr in unique(genes.enhancers.EGRM$chr)){
-  pdf(paste0("/home/nash/Documents/Psychencode/output/linear_mapping/linear_mapping_",chr,".pdf"))
-  tmp.chr <- genes.enhancers.EGRM[genes.enhancers.EGRM$chr==chr,]
-  plot(tmp.chr$TSS, tmp.chr$enhancerstop, main=paste("Linear Mapping for ",chr), xlab="TSS", ylab="enhancerstop")
-  dev.off()
-}
 
-#Density superpostion between genes and enhancers from Epigenomic Roadmap
+#Density superposition between genes and enhancers from Epigenomic Roadmap
 col1 <- rgb(0,0,255, max=255, alpha=50)
 col2 <- rgb(0,255,0, max=255, alpha=50)
 kp <- plotKaryotype()
 kpPlotDensity(kp, enhancers.EGRM, col=col1)
 kpPlotDensity(kp, genes.EGRM,col=col2)
 
-#Linear mapping on 500kbp window to determine proximity between genes based on enhancerstop
-ex.chr12 <- genes.enhancers.EGRM[genes.enhancers.EGRM$chr=="chr12",]
-
-#We plot only above top diagonal
-tmp.X <- ex.chr12[ex.chr12$TSS <= 5000000,]$TSS
-tmp.Y <- ex.chr12[ex.chr12$TSS <= 5000000,]$enhancerstop
-vec.X <- ifelse(tmp.X<=tmp.Y,tmp.X,tmp.Y)
-vec.Y <- ifelse(tmp.X>tmp.Y,tmp.X,tmp.Y)
-pdf("linear_plot_example_neurons.pdf")
-  plot(vec.X, vec.Y,ylim=c(min(vec.X),max(vec.Y)),
-     xlab="TSS",ylab="enhancerstop", main="Gene-enhancer proximity on a 5Mb window",
-     col=compo.epg$membership[ex.chr12[ex.chr12$TSS<=5000000,]$geneSymbol])
-#text(vec.X, vec.Y, ex.chr12[ex.chr12$TSS<=5000000,]$geneSymbol,cex=0.6,col="red")
-abline(0,1)
-dev.off()
 
 #Create useful data to igraph analysis, because of the high number of data and to improve the graph quality we perform the vizualisation by chromosomes
 for(chr in unique(genes.enhancers.EGRM$chr)){
@@ -542,6 +520,34 @@ network.EGRM <- graph_from_data_frame(d=links.EGRM,vertices = nodes.EGRM,directe
 network.analysis(network.EGRM)
 compo.epg <- components(network.EGRM)
 compo.epg$no
+
+#Linear plots between genes and enhancers, here we filter by chromosomes
+for(chr in unique(genes.enhancers.EGRM$chr)){
+  pdf(paste0("linear_plots/linear_plot_",chr,".pdf"))
+  tmp.chr <- genes.enhancers.EGRM[genes.enhancers.EGRM$chr==chr,]
+  #We plot only above top diagonal
+  vec.X = ifelse(tmp.chr$TSS<=tmp.chr$enhancerstop,tmp.chr$TSS, tmp.chr$enhancerstop)
+  vec.Y = ifelse(tmp.chr$TSS>tmp.chr$enhancerstop,tmp.chr$TSS, tmp.chr$enhancerstop)
+  plot(vec.X, vec.Y, main=paste("Gene-enhancer proximity for ",chr), xlab="TSS", ylab="enhancerstop",col=compo.epg$membership[tmp.chr$geneSymbol])
+  abline(0,1)
+  dev.off()
+}
+
+#Linear plot on 500kbp window to determine proximity between genes based on enhancerstop
+ex.chr12 <- genes.enhancers.EGRM[genes.enhancers.EGRM$chr=="chr12",]
+
+#We plot only above top diagonal
+tmp.X <- ex.chr12[ex.chr12$TSS <= 5000000,]$TSS
+tmp.Y <- ex.chr12[ex.chr12$TSS <= 5000000,]$enhancerstop
+vec.X <- ifelse(tmp.X<=tmp.Y,tmp.X,tmp.Y)
+vec.Y <- ifelse(tmp.X>tmp.Y,tmp.X,tmp.Y)
+pdf("linear_plots/linear_plot_example_neurons.pdf")
+plot(vec.X, vec.Y,ylim=c(min(vec.X),max(vec.Y)),
+     xlab="TSS",ylab="enhancerstop", main="Gene-enhancer proximity on a 5Mb window",
+     col=compo.epg$membership[ex.chr12[ex.chr12$TSS<=5000000,]$geneSymbol])
+#text(vec.X, vec.Y, ex.chr12[ex.chr12$TSS<=5000000,]$geneSymbol,cex=0.6,col="red")
+abline(0,1)
+dev.off()
 
 mean(compo.epg$csize)
 #[1] 2.948108
