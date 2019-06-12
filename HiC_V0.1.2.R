@@ -604,9 +604,11 @@ sum(gene.enhancer.clusters.mat[gene.enhancer.clusters.mat[,2]==1,1])/n.enhancers
 #[1] 0.7714055
 
 # Total cluster length
-longueur.cluster  = tapply(pmax(genes.enhancers.EGRM$enhancerstop,genes.enhancers.EGRM$TES),
-                           compo.epg$membership[genes.enhancers.EGRM$geneSymbol],max) - tapply(pmin(genes.enhancers.EGRM$enhancerstart,genes.enhancers.EGRM$TSS),
-                                                                                               compo.epg$membership[genes.enhancers.EGRM$geneSymbol],min)
+end.cluster = tapply(pmax(genes.enhancers.EGRM$enhancerstop,genes.enhancers.EGRM$TES),
+                       compo.epg$membership[genes.enhancers.EGRM$geneSymbol],max)
+start.cluster = tapply(pmin(genes.enhancers.EGRM$enhancerstart,genes.enhancers.EGRM$TSS),
+                       compo.epg$membership[genes.enhancers.EGRM$geneSymbol],min)
+longueur.cluster  =  end.cluster - start.cluster
 summary(longueur.cluster)
 #Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
 #42137  209249  370407  534965  657837 5789608 
