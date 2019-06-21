@@ -608,7 +608,9 @@ end.cluster = tapply(pmax(genes.enhancers.EGRM$enhancerstop,genes.enhancers.EGRM
                        compo.epg$membership[genes.enhancers.EGRM$geneSymbol],max)
 start.cluster = tapply(pmin(genes.enhancers.EGRM$enhancerstart,genes.enhancers.EGRM$TSS),
                        compo.epg$membership[genes.enhancers.EGRM$geneSymbol],min)
+
 longueur.cluster  =  end.cluster - start.cluster
+
 summary(longueur.cluster)
 #Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
 #42137  209249  370407  534965  657837 5789608 
