@@ -22,15 +22,20 @@ TADs5.bedpe <- import(file.choose(),format="bedpe")
 df.TADs5 <- read.csv2(file.choose(), sep="\t",header=FALSE)
 =======
 #To facilitate working manipulations we've converted bedpe file into tab-delimited file
-df.TADs5 <- read.table(file.choose(), sep="\t")
+# Warning! the file TADs_5000_all_blocks has a header line contrary to other tab-delimited files 
+  df.TADs5 <- read.table(file.choose(), sep="\t")
 >>>>>>> efcc967b6605c7f4ef5c44bcc184fc817b0d3551
 TADs5.bed <- df.TADs5[,c(1,2,3)]
 colnames(TADs5.bed) <- c("chr", "start", "end")
 
+df.TADs10 <- read.table(file.choose(), sep="\t",header=T)
+TADs10.bed <- df.TADs10[,c(1,2,3)]
+colnames(TADs10.bed) <- c("chr", "start", "end")
+
 #For a better retrieving of TADs, we make two kind of index: 
   # - a global index
   # - a index per chr
-#The main aimof indexing is to find a relation between closed TADs 
+#The main aim of indexing is to find a relation between nearby TADs 
 
 TADs5.bed <- TADs5.bed[with(TADs5.bed, order(chr,start)),]
 TADs5.bed$index.TADs <- seq(1, nrow(TADs5.bed), 1)
@@ -44,6 +49,19 @@ for (i in unique(TADs5.bed$chr)) {
 TADS5 <- GRanges(TADs5.bed)
 mcols(TADS5)$index.TADs <- TADs5.bed$index.TADs
 mcols(TADS5)$index.TADs.chr <- TADs5.bed$index.TADs.chr
+
+TADs10.bed <- TADs10.bed[with(TADs10.bed, order(chr,start)),]
+TADs10.bed$index.TADs <- seq(1, nrow(TADs10.bed), 1)
+
+for (i in unique(TADs10.bed$chr)) {
+  n <- rownames(TADs10.bed[TADs10.bed$chr == i,])
+  
+  TADs10.bed[n,"index.TADs.chr"] <- seq(1, length(n), 1)
+}
+
+mcols(TADS10)$index.TADs <- TADs10.bed$index.TADs
+mcols(TADS10)$index.TADs.chr <- TADs10.bed$index.TADs.chr
+
 
 #Number of TADs in the two files
 length(TADS50)
@@ -113,6 +131,15 @@ round(tally(countLnodeHits(cluster.TADs50),format="percent"))
 #0  1  2  3  4  5  6 
 #20 42 25  9  3  1  0 
 
+cluster.TADs10 <- findOverlaps(cluster.GRanges, TADS10)
+table(countLnodeHits(cluster.TADs10))
+# 0   1   2   3   4   5   6   9  16 
+#77 459 236  81  15   9   2   1   1 
+round(tally(countLnodeHits(cluster.TADs10),format="percent"))
+#0  1  2  3  4  5  6  9 16 
+#9 52 27  9  2  1  0  0  0 
+
+
 cluster.TADs100 <- findOverlaps(cluster.GRanges, TADS100)
 table(countLnodeHits(cluster.TADs100))
 #0   1   2   3   4   5 
@@ -140,57 +167,152 @@ n.inside.clusters <- sum(start(cluster.GRanges[queryHits(cluster.TADs5)]) >= sta
 n.inside.clusters / length(cluster.GRanges)
 #[1] 0.1623156
 
-#Clusters which overlaps several TADs: What is the structure of overlapped TADs by clusters? 
-names.several.TADs <- names(table(queryHits(cluster.TADs5))[table(queryHits(cluster.TADs5))!=1])
-clusters.several.TADs <- cluster.TADs5[queryHits(cluster.TADs5) %in% names.several.TADs]
+TADoverlapAnalysis = function(cluster.TADs,TADs)
+{
+  #Clusters which overlap several TADs
+  #Determines the structure of overlapped TADs by cluster
+  #and tallies number of TADs involved in each structure 
+  names.several.TADs <- names(table(queryHits(cluster.TADs))[table(queryHits(cluster.TADs))!=1])
+clusters.several.TADs <- cluster.TADs[queryHits(cluster.TADs) %in% names.several.TADs]
 
 distinct.TADs <- 0
-closer.distinct.TADS <- 0 
+closer.distinct.TADs <- 0 
 nested.TADs <- 0 
 overlaps.TADs <- 0
 
 for(i in unique(queryHits(clusters.several.TADs))){
   tmp.subjectHits <- subjectHits(clusters.several.TADs[queryHits(clusters.several.TADs) == i])
-  tmp.TADS5 <- TADS5[tmp.subjectHits]
+  tmp.TADs <- TADs[tmp.subjectHits]
   
-  n <- length(tmp.TADS5)
+  n <- length(tmp.TADs)
   
-  unique.span <- sum(width(reduce(tmp.TADS5)))
-  tt.span <- sum(width(tmp.TADS5))
-  w <- width(tmp.TADS5[which.max(width(tmp.TADS5))])
+  unique.span <- sum(width(reduce(tmp.TADs)))
+  tt.span <- sum(width(tmp.TADs))
+  w <- width(tmp.TADs[which.max(width(tmp.TADs))])
   
+  # If the genome length uniquely spanned by the TADs equals the 
+  # sum of the TADs lengths then all TADs are distincts
   if(unique.span == tt.span){
     distinct.TADs =  distinct.TADs + n
-    if(mcols(tmp.TADS5)$index.TADs[n] == mcols(tmp.TADS5)$index.TADs[1] + n -1){
-      closer.distinct.TADS = closer.distinct.TADS +n 
+    # If last TAD for this cluster is n-1 positions from first TAD in global index
+    # then all TADs are consecutive
+    if(mcols(tmp.TADs)$index.TADs[n] == mcols(tmp.TADs)$index.TADs[1] + n -1){
+      closer.distinct.TADs = closer.distinct.TADs +n 
     }
   }
+  # Else if the genome length uniquely spanned by the TADs equals the
+  # width of the largest TAD, then all other TADs are nested in that largest TAD
   else if(unique.span == w){
     nested.TADs = nested.TADs + n
   }
+  # Else we conclude that we have some other form of overlap
   else{
     overlaps.TADs = overlaps.TADs + n
   }
 
 }
 
-distinct.TADs;overlaps.TADs;nested.TADs
+list(distinct.TADs=distinct.TADs,closer.distinct.TADs=closer.distinct.TADs,overlaps.TADs=overlaps.TADs,nested.TADs=nested.TADs)
+}
+
+clusterTADoverlapAnalysis = function(cluster.TADs,TADs)
+{
+  #Clusters which overlap several TADs
+  #Determines the structure of overlapped TADs by cluster
+  #and tallies number of clusters with each structure 
+  names.several.TADs <- names(table(queryHits(cluster.TADs))[table(queryHits(cluster.TADs))!=1])
+  clusters.several.TADs <- cluster.TADs[queryHits(cluster.TADs) %in% names.several.TADs]
+  
+  distinct.TADs <- 0
+  closer.distinct.TADs <- 0 
+  nested.TADs <- 0 
+  overlaps.TADs <- 0
+  
+  for(i in unique(queryHits(clusters.several.TADs))){
+    tmp.subjectHits <- subjectHits(clusters.several.TADs[queryHits(clusters.several.TADs) == i])
+    tmp.TADs <- TADs[tmp.subjectHits]
+    
+    n <- length(tmp.TADs)
+    
+    unique.span <- sum(width(reduce(tmp.TADs)))
+    tt.span <- sum(width(tmp.TADs))
+    w <- width(tmp.TADs[which.max(width(tmp.TADs))])
+    
+    # If the genome length uniquely spanned by the TADs equals the 
+    # sum of the TADs lengths then all TADs are distincts
+    if(unique.span == tt.span){
+      distinct.TADs =  distinct.TADs + 1
+      # If last TAD for this cluster is n-1 positions from first TAD in global index
+      # then all TADs are consecutive
+      if(mcols(tmp.TADs)$index.TADs[n] == mcols(tmp.TADs)$index.TADs[1] + n -1){
+        closer.distinct.TADs = closer.distinct.TADs +1 
+      }
+    }
+    # Else if the genome length uniquely spanned by the TADs equals the
+    # width of the largest TAD, then all other TADs are nested in that largest TAD
+    else if(unique.span == w){
+      nested.TADs = nested.TADs + 1
+    }
+    # Else we conclude that we have some other form of overlap
+    else{
+      overlaps.TADs = overlaps.TADs + 1
+    }
+    
+  }
+  
+  list(cluster.distinct.TADs=distinct.TADs,cluster.closer.distinct.TADs=closer.distinct.TADs,cluster.overlaps.TADs=overlaps.TADs,clusters.nested.TADs=nested.TADs)
+}
+
+TADs5.overlap = TADoverlapAnalysis(cluster.TADs5,TADS5)
+
 #161 clusters which are overlapped distinct TADs
 #32 clusters which overlapped overlapped TADs
 #45 clusters which overlapped nested TADs
-closer.distinct.TADS == distinct.TADs 
+TADs5.overlap$closer.distinct.TADs == TADs5.overlap$distinct.TADs 
 #[1] TRUE
 #100% of distinct TADs are the closest
 
-(distinct.TADs + overlaps.TADs + nested.TADs) == length(clusters.several.TADs)
+(TADs5.overlap$distinct.TADs + TADs5.overlap$overlaps.TADs + TADs5.overlap$nested.TADs) == length(clusters.several.TADs)
 #[1] TRUE
 
-distinct.TADs/length(cluster.GRanges)
-#[1] 0.1827469
-overlaps.TADs/length(cluster.GRanges)
-#[1] 0.03632236
-nested.TADs/length(cluster.GRanges)
-#[1] 0.05107832
+
+TADs10.overlap = TADoverlapAnalysis(cluster.TADs10,TADS10)
+TADs10.overlap
+#$distinct.TADs
+#[1] 479
+
+#$closer.distinct.TADS
+#[1] 8
+
+#$overlaps.TADs
+#[1] 173
+
+#$nested.TADs
+#[1] 205
+
+cluster.TADs10.overlap = clusterTADoverlapAnalysis(cluster.TADs10,TADS10)
+cluster.TADs10.overlap
+#$cluster.distinct.TADs
+#[1] 207
+
+#$cluster.closer.distinct.TADs
+#[1] 4
+
+#$cluster.overlaps.TADs
+#[1] 43
+
+#$clusters.nested.TADs
+#[1] 95
+
+# Proportion of clusters touching at least one TAD that touch at least 2 distinct TADs
+# lower bound 
+cluster.TADs10.overlap$cluster.distinct.TADs/(length(cluster.GRanges)-sum(countLnodeHits(cluster.TADs10)==0))
+#[1] 0.2574627
+
+# upper bound including clusters overlapping multiple TADs that are not all distinct
+(cluster.TADs10.overlap$cluster.distinct.TADs+cluster.TADs10.overlap$cluster.overlaps.TADs)/(length(cluster.GRanges)-sum(countLnodeHits(cluster.TADs10)==0))
+#[1] 0.3109453
+
 #The idea behind a cluster which overlapped several different TADs is the membership of this latters to a big meta-TADs
 #https://dumas.ccsd.cnrs.fr/dumas-01628629/document (22-23)
 
