@@ -122,8 +122,6 @@ round(tally(countLnodeHits(cluster.TADs100),format="percent"))
 #27 40 23  8  2  0 
 
 cluster.TADs5 <- findOverlaps(cluster.GRanges, TADS5)
-table(countLnodeHits(cluster.TADs5))
-round(tally(countLnodeHits(cluster.TADs5),format="percent"))
 #For each overlapped TADs we have the cluster id
 mcols(TADS5)[subjectHits(cluster.TADs5), "n.cluster"] <- queryHits(cluster.TADs5)
 
@@ -217,6 +215,19 @@ round(tally(gecTADs50,format="percent"))
 round(tally(gecTADs50[gecTADs50>0],format="percent"))
 #1  2  3  4  5  6 
 #53 31 13  3  1  0
+
+genes.enhancers.EGRM.TADs50.bis <- findOverlaps(genes.enhancers.EGRM.GRanges, TADS50.bis)
+gecTADs50.bis = countLnodeHits(genes.enhancers.EGRM.TADs50.bis)
+table(gecTADs50.bis)
+#0   1   2   3   4   5   6 
+#256 566 317 131  33  11   1 
+round(tally(gecTADs50.bis,format="percent"))
+#0  1  2  3  4  5  6 
+#19 43 24 10  3  1  0 
+round(tally(gecTADs50.bis[gecTADs50.bis>0],format="percent"))
+#1  2  3  4  5  6 
+#53 30 12  3  1  0 
+
 
 genes.enhancers.EGRM.TADs100 <- findOverlaps(genes.enhancers.EGRM.GRanges, TADS100)
 gecTADs100 = countLnodeHits(genes.enhancers.EGRM.TADs100)
