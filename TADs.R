@@ -260,7 +260,7 @@ clusterTADoverlapAnalysis = function(cluster.TADs,TADs)
     
   }
   
-  list(cluster.distinct.TADs=distinct.TADs,cluster.closer.distinct.TADs=closer.distinct.TADs,cluster.overlaps.TADs=overlaps.TADs,clusters.nested.TADs=nested.TADs)
+  list(cluster.distinct.TADs=distinct.TADs,cluster.closer.distinct.TADs=closer.distinct.TADs,cluster.overlaps.TADs=overlaps.TADs,cluster.nested.TADs=nested.TADs)
 }
 
 TADs5.overlap = TADoverlapAnalysis(cluster.TADs5,TADS5)
@@ -303,6 +303,8 @@ cluster.TADs10.overlap
 
 #$clusters.nested.TADs
 #[1] 95
+
+(cluster.TADs10.overlap$cluster.distinct.TADs + cluster.TADs10.overlap$cluster.overlaps.TADs + cluster.TADs10.overlap$cluster.nested.TADs) == sum(countLnodeHits(cluster.TADs10)>1)
 
 # Proportion of clusters touching at least one TAD that touch at least 2 distinct TADs
 # lower bound 
@@ -387,3 +389,43 @@ round(tally(gecTADs10,format="percent"))
 round(tally(gecTADs10[gecTADs10>0],format="percent"))
 #1  2  3  4  5  6  9 16 
 #61 28  8  1  1  0  0  0
+
+# Eliminating overlapping TADs
+keep = numeric(0)
+for (i in 1:length(TADS10))
+{
+  if(!any(seqnames(TADS10[i])==seqnames(TADS10)&((start(TADS10[i])<=start(TADS10)&end(TADS10[i])>end(TADS10))|(start(TADS10[i])<start(TADS10)&end(TADS10[i])>=end(TADS10)))))
+    keep = c(keep,i)
+}
+TADs10.distinct = TADS10[keep]
+
+cluster.TADs10.distinct <- findOverlaps(cluster.GRanges, TADs10.distinct)
+table(countLnodeHits(cluster.TADs10.distinct))
+#0   1   2   3   4   5   6  14 
+#84 546 182  52  12   2   2   1 
+round(tally(countLnodeHits(cluster.TADs10.distinct),format="percent"))
+#0  1  2  3  4  5  6 14 
+#10 62 21  6  1  0  0  0 
+
+sum(countLnodeHits(cluster.TADs10.distinct)>1)/(length(cluster.GRanges)-sum(countLnodeHits(cluster.TADs10.distinct)==0))
+#[1] 0.314931
+sum(countLnodeHits(cluster.TADs10.distinct)>1)/(length(cluster.GRanges)-sum(countLnodeHits(cluster.TADs10)==0))
+#[1] 0.3121891
+# Close to the upper bound of the clusterTADoverlapAnalysis function
+
+
+# Number of distinct TADs overlapped by each gene-enhancer pair
+genes.enhancers.EGRM.TADs10.distinct <- findOverlaps(genes.enhancers.EGRM.GRanges, TADs10.distinct)
+gecTADs10.distinct = countLnodeHits(genes.enhancers.EGRM.TADs10.distinct)
+table(gecTADs10.distinct)
+#0   1   2   3   4   5   6  14 
+#157 832 253  56  11   2   2   2 
+round(tally(gecTADs10.distinct,format="percent"))
+#0  1  2  3  4  5  6 14 
+#12 63 19  4  1  0  0  0 
+round(tally(gecTADs10.distinct[gecTADs10.distinct>0],format="percent"))
+#1  2  3  4  5  6 14 
+#72 22  5  1  0  0  0 
+
+
+
