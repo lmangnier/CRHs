@@ -19,20 +19,8 @@ library(karyoploteR)
 library(ggplot2)
 library(igraph)
 library(biomaRt)
-#to install  FantomEnhancers.hg19 package, thanks to uncomment the following code line:
-#devtools::install_github("charlesjb/fantomenhancers.hg19")
-library(FantomEnhancers.hg19)
 
-clean.hic <- read.table(file.choose(),header = TRUE, sep="\t")
-
-#Let's take a look on initial data
-#HiC Data had already been processed to determine the significant contacts
-head(clean.hic)
-
-#As we're working on schizophrenia and bipolar troubles, we just retrieve data from neurons
-clean.hic.neu <- clean.hic[clean.hic$Cell == "Neu",]
-
-#Some functions to facilitate analysis 
+#Some functions to facilitate analysis....
 significant.contact <- function(fdr_bottom_left, fdr_donut, fdr_horizontal, fdr_vertical, threshold){
   #Function which determines the number of significant contacts in relation to a specific FDR threshold
   #The function returns a 0,1 vector
@@ -50,16 +38,17 @@ create.reverse.GRanges <- function(x,y){
   #We'll serve of contact locus to detect gene-enhancer relations into the tissue
   #I generate 4 files to make reverse analysis
   
-  GRanges.X <- GRanges(seqnames = x$chr1, ranges = IRanges(x$x1, x$x2))
-  GRanges.X1 <- GRanges(seqnames = x$chr1, ranges = IRanges(x$x1, x$x2))
+  GRanges.X <- GRanges(seqnames = x$chr1, ranges = IRanges(x$x1, x$x2), contacts = x$observed)
+  GRanges.X1 <- GRanges(seqnames = x$chr1, ranges = IRanges(x$x1, x$x2),contacts = x$observed)
   
-  GRanges.Y <- GRanges(seqnames = y$chr2, ranges = IRanges(y$y1, y$y2))
-  GRanges.Y1 <- GRanges(seqnames = y$chr2, ranges = IRanges(y$y1, y$y2))
+  GRanges.Y <- GRanges(seqnames = y$chr2, ranges = IRanges(y$y1, y$y2), contacts = y$observed)
+  GRanges.Y1 <- GRanges(seqnames = y$chr2, ranges = IRanges(y$y1, y$y2), contacts = y$observed)
   
   list("X"= GRanges.X , "Y"= GRanges.Y, "X1" = GRanges.X1, "Y1" = GRanges.Y1)
 }
 
 genes.annotations <- function(genes, GRange.to.annotate){
+  
   #Here, we do the genes annotation from contact regions
   overlaps.index <- findOverlaps(genes, GRange.to.annotate)
   
@@ -79,28 +68,6 @@ genes.annotations <- function(genes, GRange.to.annotate){
   return(GRange.annotated)
 }
 
-filter.enhancers <- function(enhancer.GRange, rule=c("one","consensus","total")){
-  #This function takes in input a enhancer file from Fantom5
-  #A specific filter on level expression is done 
-  expr <- as.data.frame(mcols(enhancer.GRange))
-  
-  if(rule == "one"){
-    #At least one enhancer is expressed into replicat cells
-    filter.one <- rowSums(expr) > 0 
-    return(enhancer.GRange[filter.one])
-  }
-  #At least two enhancers are expressed
-  else if(rule == "consensus"){
-    filter.cons <- function(x,y,z) ifelse((x > 0 && y > 0) || (x > 0 && z> 0) || (z > 0 && y > 0) || (x > 0 && y > 0 && z > 0), TRUE, FALSE)
-    return(enhancer.GRange[mapply(filter.cons, expr$CNhs12338, expr$CNhs12726, expr$CNhs13815)])
-  }
-  
-  #All the enhancers are expressed
-  else if(rule =="total"){
-    filter.total <- function(x,y,z) ifelse(x > 0 && y > 0 && z > 0, TRUE, FALSE)
-    return(enhancer.GRange[mapply(filter.total, expr$CNhs12338, expr$CNhs12726, expr$CNhs13815)])
-  }
-}
 
 find.medoid <- function(x,y){
   return(median(seq(x,y)))
@@ -132,6 +99,7 @@ enhancers.annotations <- function(enhancers, GRange.to.annotate){
 all.contact <- function(annotated.genes, annotated.enhancers, annotated.genes1, annotated.enhancers1){
   #IMPORTANT: The input files have to be indexed for well working of the function
   #The function returns 3 files: two annotated gene-enhancer file and 1 enhancer-enhancer file
+  #Because we focus our work on epigenetic regulation, we do not include the coregulation between 2 genes
   asso.genes <- annotated.genes[names(annotated.enhancers[!is.na(mcols(annotated.enhancers)$enhancerstart)])]
   asso.genes <- asso.genes[!is.na(mcols(asso.genes)$geneSymbol)]
   
@@ -170,62 +138,13 @@ all.contact <- function(annotated.genes, annotated.enhancers, annotated.genes1, 
   tmp.ee.1 <- as.data.frame(mcols(enhancer.enhancer.1))
   
   contact.enh.enh <- cbind(tmp.ee, tmp.ee.1)
-  colnames(contact.enh.enh) <- c("chr1","enhancerstart1","enhancerstop1","chr2","enhancerstart2","enhancerstop2")
+  colnames(contact.enh.enh) <- c("contacts1","chr1","enhancerstart1","enhancerstop1","contacts2","chr2","enhancerstart2","enhancerstop2")
   
   contact.enh.enh$enhancer1 <- paste(contact.enh.enh$enhancerstart1, contact.enh.enh$enhancerstop1)
   contact.enh.enh$enhancer2 <- paste(contact.enh.enh$enhancerstart2, contact.enh.enh$enhancerstop2)
   
-  return(list("gene_enhancer"=contact.genes.enh,"enhancer_enhancer"= contact.enh.enh))
+  return(list("gene_enhancer" = contact.genes.enh,"enhancer_enhancer" = contact.enh.enh))
   
-}
-
-test.overlapping <- function(TSS.gene,TES.gene, enhS, enhE) {
-  #Overlapping analysis
-  if(TSS.gene > enhE){
-    
-    return("downstream")
-  }
-  else if (TES.gene < enhS){
-    
-    return("upstream")
-  }
-  else{
-    
-    return("overlapping")
-  }
-}
-
-contact.func <- function(data, col.to.agg){
-  #This function takes as inputs a DataFrame and a column to aggregate
-  #The function returns a qualitative and quantitative results based on "full-linked" cluster
-  #This definition allows that each element of a cluster has to be linked each other
-  library(data.table)
-  tmp <- copy(data)
-  
-  #If column which wants to aggregate has a type list, one more conversion step is needed
-  tmp$col1.bis <- as.character(lapply(tmp[,col.to.agg], FUN = function(x) paste(x, collapse = "-")))
-  
-  if(col.to.agg == "geneSymbol") {
-    tmp.agg.qual <- aggregate(enhancer ~ col1.bis, data = tmp, length)
-    tmp.agg.qual$N.genes <- as.numeric(lapply(strsplit(tmp.agg.qual$col1.bis, "-"), length))
-    tmp.agg.quant <- as.data.frame(table(tmp.agg.qual$N.genes, tmp.agg.qual$enhancer))
-    colnames(tmp.agg.quant) <- c("N.Genes", "N.Enhancers", "N")
-    
-    tmp.agg.quant <- tmp.agg.quant[!tmp.agg.quant$N == 0,]
-    
-  }
-  
-  else{
-    tmp.agg.qual <- aggregate(geneSymbol ~ col1.bis, data = tmp, length)
-    tmp.agg.qual$N.genes <- as.numeric(lapply(strsplit(tmp.agg.qual$col1.bis, "-"), length))
-    tmp.agg.quant <- as.data.frame(table(tmp.agg.qual$N.genes, tmp.agg.qual$geneSymbol))
-    colnames(tmp.agg.quant) <- c("N.Enhancers", "N.Genes", "N")
-    
-    tmp.agg.quant <- tmp.agg.quant[!tmp.agg.quant$N == 0,]
-  }
-  
-  
-  list("qualitative_asso"= tmp.agg.qual, "quantitative_asso"= tmp.agg.quant)
 }
 
 create.igraph.matrix <-function(df.genes.enhancers, df.enhancers.contact){
@@ -235,7 +154,7 @@ create.igraph.matrix <-function(df.genes.enhancers, df.enhancers.contact){
   tmp.genes <- matrix(df.genes.enhancers$geneSymbol,ncol=1)
   tmp.enh <- matrix(df.genes.enhancers$enhancer, ncol =1)
   
-  enh.c <- df.enhancers.contact[,c("enhancer1","enhancer2")]
+  enh.c <- df.enhancers.contact[,c("enhancer1","enhancer2","contacts2")]
   enh.c1 <- matrix(enh.c$enhancer1, ncol=1)
   enh.c2 <- matrix(enh.c$enhancer2, ncol=1)
   
@@ -246,12 +165,11 @@ create.igraph.matrix <-function(df.genes.enhancers, df.enhancers.contact){
   nodes <- unique(nodes)
   
   
-  links <- df.genes.enhancers[,c("geneSymbol", "enhancer")]
-  colnames(links) <- c("from","to")
-  colnames(enh.c) <- c("from","to")
+  links <- df.genes.enhancers[,c("geneSymbol", "enhancer","contacts")]
+  colnames(links) <- c("from","to","weight")
+  colnames(enh.c) <- c("from","to","weight")
   
   links <- rbind(links,enh.c)
-  links$weight <- 1
   
   list("nodes"=nodes, "links"= links)
 }
@@ -259,51 +177,90 @@ create.igraph.matrix <-function(df.genes.enhancers, df.enhancers.contact){
 network.analysis <- function(network){
   #Most connected elements in cluster: diameter function returns the number of edges
   diameter <- diameter(network, directed = FALSE, weights = NA)
+  
   #The most-connected sub-network of graph
   g.diameter <- get_diameter(network, directed=FALSE, weights=NA)
+  
   #Average number of edges between two nodes
   md <- mean_distance(network,directed=FALSE)
+  
   #Graph Density: Probability of two nodes which are linked on all possible connections in graph
   d <- edge_density(network)
+  
   #Probability of two nodes which are connected to the same node are connected with each other
   t <- transitivity(network)
+  
   return(list("diameter"=diameter,"get_diameter"=g.diameter, "mean_distance"=md, "density"=d, "transitivity"=t))
 }
 
-sum(mapply(significant.contact, clean.hic.neu$fdrBL, clean.hic.neu$fdrDonut, clean.hic.neu$fdrH, clean.hic.neu$fdrV, .10))
-#100% of pixels provided from the file are enriched. with a 10% FDR thresold, this value may changed with a 5% threshold or 1% threshold.
-#We will do the same analysis with different threshold's values
-sum(mapply(significant.contact, clean.hic.neu$fdrBL, clean.hic.neu$fdrDonut, clean.hic.neu$fdrH, clean.hic.neu$fdrV, .05))
-sum(mapply(significant.contact, clean.hic.neu$fdrBL, clean.hic.neu$fdrDonut, clean.hic.neu$fdrH, clean.hic.neu$fdrV, .01))
-#The rule is extracted from Rao and al 2014.
+clean.hic <- read.table(file.choose(),header = TRUE, sep="\t")
+#We just retrieve data from neurons
+clean.hic.neu <- clean.hic[clean.hic$Cell == "Neu",]
 
-#Creation of one column for each specific rule 
-clean.hic.neu$FDR_0.1 <- mapply(significant.contact, clean.hic.neu$fdrBL, clean.hic.neu$fdrDonut, clean.hic.neu$fdrH, clean.hic.neu$fdrV, .10)
-clean.hic.neu$FDR_0.05 <- mapply(significant.contact, clean.hic.neu$fdrBL, clean.hic.neu$fdrDonut, clean.hic.neu$fdrH, clean.hic.neu$fdrV, .05)
-clean.hic.neu$FDR_0.01 <-mapply(significant.contact, clean.hic.neu$fdrBL, clean.hic.neu$fdrDonut, clean.hic.neu$fdrH, clean.hic.neu$fdrV, .01)
+Numextract <- function(string){
+  unlist(regmatches(string,gregexpr("[[:digit:]]+\\.*[[:digit:]]*",string)))
+}
+contacts_DNA_DNA <- clean.hic.neu[,c("chr1","x1", "y2", "observed")]
+names(contacts_DNA_DNA) <- c("chr", "start", "end", "observed")
 
+GRanges.DNA.DNA <- makeGRangesFromDataFrame(contacts_DNA_DNA, keep.extra.columns = TRUE)
+ 
+
+#Histogramme of n_contacts centered and scale
+hist((mcols(GRanges.DNA.DNA)$n_contacts - mean(mcols(GRanges.DNA.DNA)$n_contacts)) / sd(mcols(GRanges.DNA.DNA)$n_contacts))
+
+#Let's take a look on initial data
+#HiC Data had already been processed to determine the significant contacts
 head(clean.hic.neu)
+dim(clean.hic.neu)
+#[1] 2471   25
+sum(mapply(significant.contact, clean.hic.neu$fdrBL, clean.hic.neu$fdrDonut, clean.hic.neu$fdrH, clean.hic.neu$fdrV, .10))
+#[1] 2471
 
 #Analysis of FDR's correlation
 correlation.function(clean.hic.neu, c("fdrBL","fdrDonut","fdrH","fdrV"))
-#There is no strong correlation between the fourth FDRs.
+
+#Creation of one column for possible each specific rule 
+#Here a boolean condition on each FDR
+clean.hic.neu$FDR_0.1 <- mapply(significant.contact, clean.hic.neu$fdrBL, clean.hic.neu$fdrDonut, clean.hic.neu$fdrH, clean.hic.neu$fdrV, .10)
+head(clean.hic.neu)
 
 #Are there trans contacts ?
 table(clean.hic.neu$chr1, clean.hic.neu$chr2)
 
 #Now let's start by gene annotations
 #I create two datasets come from .hic file
-x <- clean.hic.neu[,c("chr1","x1","x2")]
-y <- clean.hic.neu[,c("chr2","y1","y2")]
+x <- clean.hic.neu[,c("chr1","x1","x2", "observed")]
+y <- clean.hic.neu[,c("chr2","y1","y2", "observed")]
 
 contacts.locus <- create.reverse.GRanges(x,y)
-
 head(contacts.locus$X);head(contacts.locus$Y)
-all.equal(contacts.locus$X,contacts.locus$Y)
+
+mcols(contacts.locus$X)$medoidX <- start(contacts.locus$X) + (end(contacts.locus$X) - start(contacts.locus$X))/2
+mcols(contacts.locus$X)$medoidY <- start(contacts.locus$Y) + (end(contacts.locus$Y) - start(contacts.locus$Y))/2
+mcols(contacts.locus$X)$dist.medtomed <- mcols(contacts.locus$X)$medoidY - mcols(contacts.locus$X)$medoidX
+
+distance_between_medoid <- mcols(contacts.locus$X)$medoidY - mcols(contacts.locus$X)$medoidX
+summary(distance_between_medoid)
+
+median.contacts.by.dist <-aggregate(contacts~dist.medtomed,data=as(contacts.locus$X, "data.frame"), mean)
+
+#Correlation between medoid distance and number of contact
+cor(median.contacts.by.dist$dist.medtomed, median.contacts.by.dist$contacts, method="pearson")
+#[1] -0.1190844
+
+#Histogramme of mean number of contacts by distance between medoid of contact loci
+hist(median.contacts.by.dist$contacts)
+#Goodness of fit :
+shapiro.test(median.contacts.by.dist$contacts)
+#p-value = 1.992e-08 : We reject Ho, data do not follow normal distribution
+
+mcols(contacts.locus$X)$medoidX <- NULL
+mcols(contacts.locus$X)$medoidY <- NULL
+mcols(contacts.locus$X)$dist.medtomed <- NULL
 
 #Unique coverage from contact locus for the both of files
-paste("Total genome coverage : ",sum(width(reduce(contacts.locus$X))), "bp")
-paste("Total genome coverage : ",sum(width(reduce(contacts.locus$Y))), "bp")
+sum(width(reduce(union(contacts.locus$X,contacts.locus$Y,ignore.strand=TRUE))))
 
 #Hg19 genes used for genes annotations
 txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
@@ -315,143 +272,32 @@ genes.hg19$geneSymbol <- symbol$SYMBOL
 genes.hg19$TSS <- start(genes.hg19)
 genes.hg19$TES <- end(genes.hg19)
 
-head(genes.hg19)
+#Number of gene overlaps on unique contact regions
+common.region.X.Y <- union(contacts.locus$X,contacts.locus$Y,ignore.strand=TRUE)
+counts.overlaps.X <- countOverlaps(genes.hg19, common.region.X.Y)
+table(counts.overlaps.X!=0)
+#FALSE  TRUE 
+#20401  2655
 
-#Number of gene overlaps on contact regions
-counts.overlaps.X <- countOverlaps(genes.hg19, contacts.locus$X)
-counts.overlaps.Y <- countOverlaps(genes.hg19, contacts.locus$Y)
-
-table(counts.overlaps.X)
-table(counts.overlaps.Y)
-
-genes.overlaps.X <- subsetByOverlaps(genes.hg19, contacts.locus$X)
-genes.overlaps.Y <- subsetByOverlaps(genes.hg19, contacts.locus$Y)
-
-#Unified genes overlapping
-unified.genes <- intersect(genes.overlaps.X, genes.overlaps.Y)
-sum(width(reduce(unified.genes)))
-mean(width(reduce(unified.genes)))
-
-quantiles.overlapping.genes <- quantile(width(unified.genes), probs=c(.25,.50,.75))
-#25%    50%    75% 
-#111891 242716 462379 
-
-hist(width(unified.genes), main="Distribution of overlapping contact-locus gene width")
+sum(width(reduce(subsetByOverlaps(genes.hg19,common.region.X.Y))))
+#374678512
+summary(width(reduce(subsetByOverlaps(genes.hg19,common.region.X.Y))))
+# Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#54   22371   67562  147686  172588 5128602 
+hist(width(reduce(subsetByOverlaps(genes.hg19,common.region.X.Y))), main="Distribution of overlapping contact-locus gene width")
 #It seems to have a most important part of overlapping genes which are little genes
 
 #density for overlapping genes all along chromosomes 
 kp.genes <- plotKaryotype(genome="hg19")
-kpPlotDensity(kp.genes, data=unified.genes)
-
-#Have enhancers for each genes, data are extracted from Fantom5
-#Data are available on Github repo
-load(file.choose())
-#Let's take a look on data 
-head(neurons_enhancers)
+kpPlotDensity(kp.genes, data=common.region.X.Y)
 
 genes.annotations.X <- genes.annotations(genes.hg19,contacts.locus$X)
 genes.annotations.Y <- genes.annotations(genes.hg19,contacts.locus$Y1)
 
-#Here we use the lowest filter size
-filter.enhancers.cons <- filter.enhancers(neurons_enhancers, "consensus")
-filter.enhancers.one <- filter.enhancers(neurons_enhancers, "one")
-
-enhancers.annotations.Y <- enhancers.annotations(filter.enhancers.one,contacts.locus$Y)
-enhancers.annotations.X <- enhancers.annotations(filter.enhancers.one,contacts.locus$X1)
-
+#THIS STEP IS CRUCIAL!!!!!!
 #Because of the order of bins is preserved  we index the 2 type files for retrieving the genes associated with enhancers
 names(genes.annotations.X) <- 1:length(genes.annotations.X)
-names(enhancers.annotations.Y) <- 1:length(enhancers.annotations.Y)
-names(enhancers.annotations.X) <- 1:length(enhancers.annotations.X)
 names(genes.annotations.Y) <- 1:length(genes.annotations.Y)
-
-genes.enhancers.contact <- all.contact(genes.annotations.X,enhancers.annotations.Y,genes.annotations.Y,enhancers.annotations.X)$gene_enhancer
-enhancers.enhancers.contact <- all.contact(genes.annotations.X,enhancers.annotations.Y,genes.annotations.Y,enhancers.annotations.X)$enhancer_enhancer
-
-enhancers.enhancers.contact$med1 <- mapply(find.medoid,enhancers.enhancers.contact$enhancerstart1, enhancers.enhancers.contact$enhancerstop1)
-enhancers.enhancers.contact$med2 <- mapply(find.medoid,enhancers.enhancers.contact$enhancerstart2,enhancers.enhancers.contact$enhancerstop2)
-
-#Distribution Quantiles of distance between two connected enhancers
-hist(abs(enhancers.enhancers.contact$med1 - enhancers.enhancers.contact$med2),main = "Distribution of proximity (bp) between two connected enhancers")
-#It seems that two connected enhancers are mostly closed
-quantile(abs(enhancers.enhancers.contact$med1 - enhancers.enhancers.contact$med2), probs=c(.25,.5,.75))
-
-all.equal(enhancers.enhancers.contact$enhancer1, enhancers.enhancers.contact$enhancer2)
-#[1] "75 string mismatches"
-
-length(unique(enhancers.enhancers.contact$enhancer1))
-#74
-length(unique(enhancers.enhancers.contact$enhancer2))
-#75
-
-enhancers.FANTOM <- GRanges(seqnames = genes.enhancers.contact$chr,ranges=IRanges(start = genes.enhancers.contact$enhancerstart , end = genes.enhancers.contact$enhancerstop),strand="*")
-genes.FANTOM <- GRanges(seqnames = genes.enhancers.contact$chr,ranges=IRanges(start = genes.enhancers.contact$TSS , end = genes.enhancers.contact$TES), strand="*")
-
-#Linear mapping between genes and enhancers, here we filter by chromosomes
-for(chr in unique(genes.enhancers.contact$chr)){
-  tmp.chr <- genes.enhancers.contact[genes.enhancers.contact$chr==chr,]
-  plot(tmp.chr$TSS, tmp.chr$enhancerstop, main=paste("Linear Mapping for ",chr), xlab="TSS", ylab="enhancerstop")
-}
-
-#Density superpostion between genes and enhancers from Fantom5
-kp <- plotKaryotype()
-kpPlotDensity(kp, enhancers.FANTOM, col="#FF00007F")
-kpPlotDensity(kp, genes.FANTOM,col="#0000FF7F")
-
-#Non redundant Genome coverage by enhancers
-sum(width(reduce(enhancers.FANTOM)))
-sum(width(reduce(genes.FANTOM)))
-
-#Two network definitions are now possible to determine gene-enhancer connections. 
-#The first one is that we call "full connected network", by definition in this latter all cluster elements are connected each others
-#The second one is that we call "at least one connected network", by definition in this network each element is linked by at least one other element of network
-#We choose to present the second network version
-nodes.FANTOM <- create.igraph.matrix(genes.enhancers.contact, enhancers.enhancers.contact)$nodes
-links.FANTOM <- create.igraph.matrix(genes.enhancers.contact, enhancers.enhancers.contact)$links
-
-network.FANTOM <- graph_from_data_frame(d= links.FANTOM,vertices=nodes.FANTOM,directed = FALSE)
-plot(network.FANTOM, vertex.label=NA, vertex.size = 1.5, margin=-.1,asp=.25, vertex.color = nodes.FANTOM$col, edge.color = "red",main="Clustering based on Gene-Enhancer contacts")
-legend(x=0, y=-1.3, c("gene","enhancer"), pch=21,
-       col="#777777", pt.bg=unique(nodes.FANTOM$col), pt.cex=2, cex=.8, bty="n", ncol=1)
-
-network.analysis(network.FANTOM)
-
-compo.FANTOM <- components(network.FANTOM)
-#Number of unique clusters
-compo.FANTOM$no
-#[1] 389
-mean(compo.FANTOM$csize)
-#2.329049
-table(compo.FANTOM$csize)
-# 2   3   4   5   6 
-#302  56  24   4   3 
-
-#"Full-connected cluster" definition here: 
-#The code is not executed
-
-#agg.table.enhancers <- aggregate(geneSymbol~enhancer, data=genes.enhancers.contact, unique, na.rm=TRUE)
-#agg.table.genes <- aggregate(enhancer~geneSymbol, data=genes.enhancers.contact, unique, na.rm=TRUE)
-
-#table(sapply(agg.table.enhancers$geneSymbol, length))
-#table(sapply(agg.table.genes$enhancer, length))
-
-#barplot(table(sapply(agg.table.enhancers$geneSymbol, length)), main = "Distribution of number of genes associated by enhancer", xlab = "Number of genes associated", ylab = "Frequency")
-#barplot(table(sapply(agg.table.genes$enhancer, length)), main = "Distribution of number of enhancers associated by genes", xlab = "Number of enhancers associated", ylab = "Frequency")
-
-#genes.enhancers.contact$overlapping <- mapply(test.overlapping, genes.enhancers.contact$TSS, genes.enhancers.contact$TES, genes.enhancers.contact$enhancerstart, genes.enhancers.contact$enhancerstop)
-
-#barplot(table(genes.enhancers.contact$overlapping), main = "Barplot of enhancer position in relation to his gene")
-
-#Quantile Coverage analysis by overlapping status 
-#genes.enhancers.contact$width.enh <- genes.enhancers.contact$enhancerstop - genes.enhancers.contact$enhancerstart
-#quant.overlapping <- aggregate(width.enh ~ overlapping, data=genes.enhancers.contact, FUN = "quantile" ,probs=c(0.25, 0.50,0.75))
-#quant.overlapping
-
-#analysis.g_e <- contact.func("geneSymbol",agg.table.enhancers)
-#head(analysis.g_e$quantitative_asso)
-
-#analysis.e_g <- contact.func("enhancer", agg.table.genes)
-#head(analysis.e_g$quantitative_asso)
 
 #Because of lack of complexity with FANTOM annotations, we propose the same methodology as above but with
 #Epigenomic Roadmap annotations.
@@ -479,17 +325,25 @@ enhancers.EGRM.X <- enhancers.annotations(enhancers.EGRM,contacts.locus$X1)
 names(enhancers.EGRM.Y) <- 1:length(enhancers.EGRM.Y)
 names(enhancers.EGRM.X) <- 1:length(enhancers.EGRM.X)
 
+
 genes.enhancers.EGRM <- all.contact(genes.annotations.X,enhancers.EGRM.Y,genes.annotations.Y,enhancers.EGRM.X)$gene_enhancer
 enhancers.enhancers.EGRM <- all.contact(genes.annotations.X,enhancers.EGRM.Y,genes.annotations.Y,enhancers.EGRM.X)$enhancer_enhancer
 
 enhancers.EGRM <- GRanges(seqnames = genes.enhancers.EGRM$chr,ranges=IRanges(start = genes.enhancers.EGRM$enhancerstart , end = genes.enhancers.EGRM$enhancerstop),strand="*")
 genes.EGRM <- GRanges(seqnames = genes.enhancers.EGRM$chr,ranges=IRanges(start = genes.enhancers.EGRM$TSS , end = genes.enhancers.EGRM$TES), strand="*")
+
 #Non redundant Genome coverage by enhancers and genes
+
 sum(width(reduce(enhancers.EGRM)))
 #[1] 1479800
+summary(width(reduce(enhancers.EGRM)))
+
 sum(width(reduce(genes.EGRM)))
 #[1] 188602968
+summary(width(reduce(genes.EGRM)))
 
+distance_gene_enhancer <-abs((start(enhancers.EGRM) + (end(enhancers.EGRM)-start(enhancers.EGRM))/2) - (start(genes.EGRM) + (end(genes.EGRM)-start(genes.EGRM))/2))
+summary(distance_gene_enhancer)
 
 #Density superposition between genes and enhancers from Epigenomic Roadmap
 col1 <- rgb(0,0,255, max=255, alpha=50)
@@ -501,16 +355,20 @@ kpPlotDensity(kp, genes.EGRM,col=col2)
 
 #Create useful data to igraph analysis, because of the high number of data and to improve the graph quality we perform the vizualisation by chromosomes
 for(chr in unique(genes.enhancers.EGRM$chr)){
-  pdf(paste0("/home/nash/Documents/Psychencode/output/networks/cluster_network",chr,".pdf"))
+  #pdf(paste0("/home/nash/Documents/Psychencode/output/networks/cluster_network",chr,".pdf"))
   tmp.genes.enhancers <- genes.enhancers.EGRM[genes.enhancers.EGRM$chr==chr,]
   tmp.enhancers.enhancers <- enhancers.enhancers.EGRM[enhancers.enhancers.EGRM$chr1 == chr,]
   tmp.nodes <- create.igraph.matrix(tmp.genes.enhancers, tmp.enhancers.enhancers)$nodes
   tmp.links <- create.igraph.matrix(tmp.genes.enhancers, tmp.enhancers.enhancers)$links
   network <- graph_from_data_frame(d=tmp.links,vertices = tmp.nodes,directed = F)
+  
+  #Weighting of network based on contact number between elements
+  E(network)$width <- 1 + E(network)$weight/12
+  
   plot(network, vertex.label=NA, vertex.size = 2, margin=-.1,asp=.35, vertex.color = tmp.nodes$col, edge.color = "green",main=paste("Clustering based on Gene-Enhancer contacts: ", chr))
   legend(x=0, y=-1.3, c("gene","enhancer"), pch=21,
          col="#777777", pt.bg=unique(tmp.nodes$col), pt.cex=2, cex=.8, bty="n", ncol=1)
-  dev.off()
+  #dev.off()
 }
 
 nodes.EGRM <- create.igraph.matrix(genes.enhancers.EGRM, enhancers.enhancers.EGRM)$nodes
@@ -519,7 +377,20 @@ network.EGRM <- graph_from_data_frame(d=links.EGRM,vertices = nodes.EGRM,directe
 
 network.analysis(network.EGRM)
 compo.epg <- components(network.EGRM)
-compo.epg$no
+
+tmp.links <- links.EGRM[,]
+
+for(c in compo.epg$membership){
+  tmp.nms <- names(compo.epg$membership[compo.epg$membership==c])
+  tmp.links[tmp.links$from%in%tmp.nms | tmp.links$to%in%tmp.nms,"n.cluster"] = c
+}
+
+mean.contacts.clusters <- aggregate(weight~n.cluster, data=tmp.links, mean)
+hist(mean.contacts.clusters$weight)
+
+summary(mean.contacts.clusters$weight)
+#Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#14.00   34.00   42.00   44.45   52.00  108.00 
 
 #Linear plots between genes and enhancers, here we filter by chromosomes
 for(chr in unique(genes.enhancers.EGRM$chr)){
@@ -533,51 +404,11 @@ for(chr in unique(genes.enhancers.EGRM$chr)){
   dev.off()
 }
 
-#Linear plot on 500kbp window to determine proximity between genes based on enhancerstop
-ex.chr12 <- genes.enhancers.EGRM[genes.enhancers.EGRM$chr=="chr12",]
-
-#We plot only above top diagonal
-tmp.X <- ex.chr12[ex.chr12$TSS <= 5000000,]$TSS
-tmp.Y <- ex.chr12[ex.chr12$TSS <= 5000000,]$enhancerstop
-vec.X <- ifelse(tmp.X<=tmp.Y,tmp.X,tmp.Y)
-vec.Y <- ifelse(tmp.X>tmp.Y,tmp.X,tmp.Y)
-pdf("linear_plots/linear_plot_example_neurons.pdf")
-plot(vec.X, vec.Y,ylim=c(min(vec.X),max(vec.Y)),
-     xlab="TSS",ylab="enhancerstop", main="Gene-enhancer proximity on a 5Mb window",
-     col=compo.epg$membership[ex.chr12[ex.chr12$TSS<=5000000,]$geneSymbol])
-#text(vec.X, vec.Y, ex.chr12[ex.chr12$TSS<=5000000,]$geneSymbol,cex=0.6,col="red")
-abline(0,1)
-dev.off()
-
 mean(compo.epg$csize)
 #[1] 2.948108
 table(compo.epg$csize)
 # 2   3   4   5   6   7   8  10  13 
 #433 236 186  38  17  10   3   1   1 
-
-#agg.table.enhancers.epg <- aggregate(geneSymbol~enhancer, data=genes.enhancers.EGRM, unique, na.rm=TRUE)
-#agg.table.genes.epg <- aggregate(enhancer~geneSymbol, data=genes.enhancers.EGRM, unique, na.rm=TRUE)
-
-#table(sapply(agg.table.enhancers.epg$geneSymbol, length))
-#table(sapply(agg.table.genes.epg$enhancer, length))
-
-#barplot(table(sapply(agg.table.enhancers.epg$geneSymbol, length)), main = "Distribution of number of genes associated by enhancer", xlab = "Number of genes associated", ylab = "Frequency")
-#barplot(table(sapply(agg.table.genes.epg$enhancer, length)), main = "Distribution of number of enhancers associated by genes", xlab = "Number of enhancers associated", ylab = "Frequency")
-
-#genes.enhancers.EGRM$overlapping <- mapply(test.overlapping, genes.enhancers.EGRM$TSS, genes.enhancers.EGRM$TES, genes.enhancers.EGRM$enhancerstart, genes.enhancers.EGRM$enhancerstop)
-
-#barplot(table(genes.enhancers.EGRM$overlapping), main = "Barplot of enhancer position in relation to his gene")
-
-#Quantile Coverage analysis by overlapping status 
-#genes.enhancers.EGRM$width.enh <- genes.enhancers.EGRM$enhancerstop - genes.enhancers.EGRM$enhancerstart
-#quant.overlapping <- aggregate(width.enh ~ overlapping, data=dgenes.enhancers.EGRM FUN = "quantile" ,probs=c(0.25, 0.50,0.75))
-#quant.overlapping
-
-#analysis.g_e.epg <- contact.func("geneSymbol",agg.table.enhancers.epg)
-#head(analysis.g_e.epg$quantitative_asso)
-
-#analysis.e_g.epg <- contact.func("enhancer", agg.table.genes.epg)
-#head(analysis.e_g.epg$quantitative_asso)
 
 n.genes <- length(unique(genes.enhancers.EGRM$geneSymbol))
 n.enhancers <- length(unique(genes.enhancers.EGRM$enhancer))
@@ -599,6 +430,7 @@ tapply(gene.enhancer.clusters.mat[,2],gene.enhancer.clusters.mat[,1],summary)
 # Proportion of genes with a single enhancer
 sum(gene.enhancer.clusters.mat[gene.enhancer.clusters.mat[,1]==1,2])/n.genes
 #[1] 0.3591979
+
 # Proportion of enhancers linked to a single gene
 sum(gene.enhancer.clusters.mat[gene.enhancer.clusters.mat[,2]==1,1])/n.enhancers
 #[1] 0.7714055
@@ -615,11 +447,66 @@ summary(longueur.cluster)
 #Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
 #42137  209249  370407  534965  657837 5789608 
 
-#Extraction of the larger network and summary analysis
-larger<- which.max(table(compo.epg$membership))
-larger.node <- nodes.epg[compo.epg$membership == larger[[1]],]
-larger.links <- links.EGRM[links.EGRM$from%in%larger.node$id | links.EGRM$to%in% larger.node$id,]
-larger.graph = graph_from_data_frame(d=larger.links,directed=F,vertices=larger.node)
-V(larger.graph)$label.cex = 0.5
-V(larger.graph)$label.color = larger.node$col
-plot(larger.graph,vertex.size = 1.5, margin=-.1,asp=.25,vertex.color = larger.node$col, edge.color = "red",main="Larger Network")
+
+#Link between size of cluster and number of contacts inside cluster
+df.contacts.cluster.analysis <- data.frame(matrix(ncol=6))
+colnames(df.contacts.cluster.analysis) <- c("id.cluster", "n.contacts", "n.elements","n.genes","n.enhancers","span.cluster")
+i <- 1
+
+for(id in unique(tmp.links$n.cluster)){
+  
+  df.contacts.cluster.analysis[i,"id.cluster"] = id
+  df.contacts.cluster.analysis[i, "n.contacts"] = mean(tmp.links[tmp.links$n.cluster == id,]$weight)
+  
+  elements <- unique(c(tmp.links[tmp.links$n.cluster==id,"from"],tmp.links[tmp.links$n.cluster==id,"to"]))
+  df.contacts.cluster.analysis[i,"n.elements"] <- length(elements)
+  
+  tmp.gene.enh <- genes.enhancers.EGRM[genes.enhancers.EGRM$geneSymbol%in%elements | genes.enhancers.EGRM$enhancer%in%elements,]
+  tmp.enh.enh <- enhancers.enhancers.EGRM[enhancers.enhancers.EGRM$enhancer1%in%elements | enhancers.enhancers.EGRM$enhancer2%in%elements,]
+
+  if(nrow(tmp.enh.enh) == 0){
+    
+    df.contacts.cluster.analysis[i, "n.genes"] <- length(unique(tmp.gene.enh$geneSymbol))
+    df.contacts.cluster.analysis[i, "n.enhancers"] <- length(unique(tmp.gene.enh$enhancer))
+    
+    max.max <- max(tmp.gene.enh[,c("TSS","TES", "enhancerstart", "enhancerstop")])
+    min.min <- min(tmp.gene.enh[,c("TSS","TES", "enhancerstart", "enhancerstop")])
+   
+    df.contacts.cluster.analysis[i,"span.cluster"] <-  max.max - min.min
+  }
+  
+  else if(nrow(tmp.gene.enh) == 0){
+    
+    df.contacts.cluster.analysis[i, "n.genes"] <- 0
+    df.contacts.cluster.analysis[i, "n.enhancers"] <- length(unique(c(tmp.gene.enh$enhancer,tmp.enh.enh$enhancer1, tmp.enh.enh$enhancer2)))
+    
+    max.max <- max(tmp.enh.enh[,c("enhancerstart1","enhancerstop1", "enhancerstart2", "enhancerstop2")])
+    min.min <- min(tmp.enh.enh[,c("enhancerstart1","enhancerstop1", "enhancerstart2", "enhancerstop2")])
+    
+    df.contacts.cluster.analysis[i,"span.cluster"] <-  max.max - min.min
+    
+  }
+  else{
+    
+    df.contacts.cluster.analysis[i, "n.genes"] <- length(unique(tmp.gene.enh$geneSymbol))
+    df.contacts.cluster.analysis[i, "n.enhancers"] <- length(unique(c(tmp.gene.enh$enhancer,tmp.enh.enh$enhancer1, tmp.enh.enh$enhancer2)))
+    
+    max.gene.enh <- max(tmp.gene.enh[,c("TSS","TES", "enhancerstart", "enhancerstop")])
+    max.enh.enh <- max(tmp.enh.enh[,c("enhancerstart1","enhancerstop1", "enhancerstart2", "enhancerstop2")])
+    
+    min.gene.enh <- min(tmp.gene.enh[,c("TSS","TES", "enhancerstart", "enhancerstop")])
+    min.enh.enh <- min(tmp.enh.enh[,c("enhancerstart1","enhancerstop1", "enhancerstart2", "enhancerstop2")])
+    
+    max.max <- max(max.gene.enh, max.enh.enh)
+    min.min <- min(min.gene.enh, min.enh.enh)
+    
+    df.contacts.cluster.analysis[i,"span.cluster"] <-  max.max - min.min
+    
+    
+  }
+  i <- i + 1
+
+}
+length(unique(tmp.links$n.cluster)) == nrow(df.contacts.cluster.analysis)
+#TRUE
+
