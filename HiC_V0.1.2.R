@@ -193,21 +193,23 @@ network.analysis <- function(network){
   return(list("diameter"=diameter,"get_diameter"=g.diameter, "mean_distance"=md, "density"=d, "transitivity"=t))
 }
 
-clean.hic <- read.table(file.choose(),header = TRUE, sep="\t")
-#We just retrieve data from neurons
-clean.hic.neu <- clean.hic[clean.hic$Cell == "Neu",]
-
 Numextract <- function(string){
+  #Function of seqnames formating column for GRanges
   unlist(regmatches(string,gregexpr("[[:digit:]]+\\.*[[:digit:]]*",string)))
 }
+
+########################################################### END of FUNCTIONS ############################################
+
+########################################################### Start of CODE ###############################################
+clean.hic <- read.table(file.choose(),header = TRUE, sep="\t")
+#We retrieve data from neurons and Astro in two  differents dataframes
+clean.hic.neu <- clean.hic[clean.hic$Cell == "Neu",]
+clean.hic.astro <- clean.hic[clean.hic$Cell == "Astro"]
+
 contacts_DNA_DNA <- clean.hic.neu[,c("chr1","x1", "y2", "observed")]
 names(contacts_DNA_DNA) <- c("chr", "start", "end", "observed")
 
 GRanges.DNA.DNA <- makeGRangesFromDataFrame(contacts_DNA_DNA, keep.extra.columns = TRUE)
- 
-
-#Histogramme of n_contacts centered and scale
-hist((mcols(GRanges.DNA.DNA)$n_contacts - mean(mcols(GRanges.DNA.DNA)$n_contacts)) / sd(mcols(GRanges.DNA.DNA)$n_contacts))
 
 #Let's take a look on initial data
 #HiC Data had already been processed to determine the significant contacts
@@ -311,20 +313,21 @@ names(genes.annotations.Y) <- 1:length(genes.annotations.Y)
 enhancers.EGRM <- import(file.choose(), format="bed")
 head(enhancers.EGRM)
 
-#Distribution of different states present in the file 
-distribution.states <-table(mcols(enhancers.EGRM)$name)
-barplot(sort((distribution.states)/sum(distribution.states))*100,las =2)
+#Distribution of different states overlapped Hi-C contact loci present in the file 
+overlapping.states <- subsetByOverlaps(enhancers.EGRM, union(contacts.locus$X, contacts.locus$Y))
+sort(table(mcols(overlapping.states)$name),decreasing = TRUE)
 
 #We focus our analysis only on enhancers
-enhancers.EGRM.filter <- mcols(enhancers.EGRM)$name %in% c("6_EnhG","7_Enh")
+enhancers.EGRM.filter <- mcols(enhancers.EGRM)$name %in% c("6_EnhG","7_Enh","12_EnhBiv")
 enhancers.EGRM <- enhancers.EGRM[enhancers.EGRM.filter]
 
 enhancers.EGRM.Y <- enhancers.annotations(enhancers.EGRM,contacts.locus$Y)
 enhancers.EGRM.X <- enhancers.annotations(enhancers.EGRM,contacts.locus$X1)
 
+length(union(enhancers.EGRM.X, enhancers.EGRM.Y))
+
 names(enhancers.EGRM.Y) <- 1:length(enhancers.EGRM.Y)
 names(enhancers.EGRM.X) <- 1:length(enhancers.EGRM.X)
-
 
 genes.enhancers.EGRM <- all.contact(genes.annotations.X,enhancers.EGRM.Y,genes.annotations.Y,enhancers.EGRM.X)$gene_enhancer
 enhancers.enhancers.EGRM <- all.contact(genes.annotations.X,enhancers.EGRM.Y,genes.annotations.Y,enhancers.EGRM.X)$enhancer_enhancer
@@ -335,14 +338,14 @@ genes.EGRM <- GRanges(seqnames = genes.enhancers.EGRM$chr,ranges=IRanges(start =
 #Non redundant Genome coverage by enhancers and genes
 
 sum(width(reduce(enhancers.EGRM)))
-#[1] 1479800
+#[1] 1666800
 summary(width(reduce(enhancers.EGRM)))
 
 sum(width(reduce(genes.EGRM)))
-#[1] 188602968
+#[1] 214500987
 summary(width(reduce(genes.EGRM)))
 
-distance_gene_enhancer <-abs((start(enhancers.EGRM) + (end(enhancers.EGRM)-start(enhancers.EGRM))/2) - (start(genes.EGRM) + (end(genes.EGRM)-start(genes.EGRM))/2))
+distance_gene_enhancer <- abs((start(enhancers.EGRM) + (end(enhancers.EGRM)-start(enhancers.EGRM))/2) - (start(genes.EGRM) + (end(genes.EGRM)-start(genes.EGRM))/2))
 summary(distance_gene_enhancer)
 
 #Density superposition between genes and enhancers from Epigenomic Roadmap
@@ -405,18 +408,18 @@ for(chr in unique(genes.enhancers.EGRM$chr)){
 }
 
 mean(compo.epg$csize)
-#[1] 2.948108
+#[1] 3.046287
 table(compo.epg$csize)
-# 2   3   4   5   6   7   8  10  13 
-#433 236 186  38  17  10   3   1   1 
+#2   3   4   5   6   7   8   9  10  13 
+#449 269 228  50  17  12   8   1   2   1 
 
 n.genes <- length(unique(genes.enhancers.EGRM$geneSymbol))
 n.enhancers <- length(unique(genes.enhancers.EGRM$enhancer))
 
 one.g.one.e <- table(compo.epg$csize)[1][[1]]
 one.g.one.e / n.genes ; one.g.one.e/n.enhancers
-#[1] 0.3775065 :Proportion of genes which are single linked with an enhancer
-#[1] 0.3497577 : Proportion of enhancers which are single linked with a gene
+#[1] 0.344589 :Proportion of genes which are single linked with an enhancer
+#[1] 0.3159747 : Proportion of enhancers which are single linked with a gene
 
 #Statistics per cluster
 gene.enhancer.clusters = tapply(names(compo.epg$membership),compo.epg$membership,function(vec,genes) table(vec%in%genes),genes=genes.enhancers.EGRM$geneSymbol)
@@ -429,7 +432,7 @@ tapply(gene.enhancer.clusters.mat[,2],gene.enhancer.clusters.mat[,1],summary)
 
 # Proportion of genes with a single enhancer
 sum(gene.enhancer.clusters.mat[gene.enhancer.clusters.mat[,1]==1,2])/n.genes
-#[1] 0.3591979
+#[1] 0.3169609
 
 # Proportion of enhancers linked to a single gene
 sum(gene.enhancer.clusters.mat[gene.enhancer.clusters.mat[,2]==1,1])/n.enhancers
@@ -445,68 +448,84 @@ longueur.cluster  =  end.cluster - start.cluster
 
 summary(longueur.cluster)
 #Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-#42137  209249  370407  534965  657837 5789608 
+#42137  218445  384409  546059  694835 5789608 
 
 
 #Link between size of cluster and number of contacts inside cluster
-df.contacts.cluster.analysis <- data.frame(matrix(ncol=6))
-colnames(df.contacts.cluster.analysis) <- c("id.cluster", "n.contacts", "n.elements","n.genes","n.enhancers","span.cluster")
-i <- 1
-
-for(id in unique(tmp.links$n.cluster)){
+HiC.intensity.contacts <- function(links,df.genes.enhancers, df.enhancers.enhancers){
+  i <- 1
+  #Creation and formatting of output dataframe
+  df.contacts.cluster.analysis <- data.frame(matrix(ncol=6))
+  colnames(df.contacts.cluster.analysis) <- c("id.cluster", "n.contacts", "n.elements","n.genes","n.enhancers","span.cluster")
   
-  df.contacts.cluster.analysis[i,"id.cluster"] = id
-  df.contacts.cluster.analysis[i, "n.contacts"] = mean(tmp.links[tmp.links$n.cluster == id,]$weight)
-  
-  elements <- unique(c(tmp.links[tmp.links$n.cluster==id,"from"],tmp.links[tmp.links$n.cluster==id,"to"]))
-  df.contacts.cluster.analysis[i,"n.elements"] <- length(elements)
-  
-  tmp.gene.enh <- genes.enhancers.EGRM[genes.enhancers.EGRM$geneSymbol%in%elements | genes.enhancers.EGRM$enhancer%in%elements,]
-  tmp.enh.enh <- enhancers.enhancers.EGRM[enhancers.enhancers.EGRM$enhancer1%in%elements | enhancers.enhancers.EGRM$enhancer2%in%elements,]
-
-  if(nrow(tmp.enh.enh) == 0){
+  for(id in unique(links$n.cluster)){
     
-    df.contacts.cluster.analysis[i, "n.genes"] <- length(unique(tmp.gene.enh$geneSymbol))
-    df.contacts.cluster.analysis[i, "n.enhancers"] <- length(unique(tmp.gene.enh$enhancer))
+    df.contacts.cluster.analysis[i,"id.cluster"] = id
+    df.contacts.cluster.analysis[i, "n.contacts"] = mean(tmp.links[tmp.links$n.cluster == id,]$weight)
     
-    max.max <- max(tmp.gene.enh[,c("TSS","TES", "enhancerstart", "enhancerstop")])
-    min.min <- min(tmp.gene.enh[,c("TSS","TES", "enhancerstart", "enhancerstop")])
-   
-    df.contacts.cluster.analysis[i,"span.cluster"] <-  max.max - min.min
+    elements <- unique(c(links[links$n.cluster==id,"from"],links[tmp.links$n.cluster==id,"to"]))
+    df.contacts.cluster.analysis[i,"n.elements"] <- length(elements)
+    
+    tmp.gene.enh <- df.genes.enhancers[genes.enhancers.EGRM$geneSymbol%in%elements | genes.enhancers.EGRM$enhancer%in%elements,]
+    tmp.enh.enh <- df.enhancers.enhancers[enhancers.enhancers.EGRM$enhancer1%in%elements | enhancers.enhancers.EGRM$enhancer2%in%elements,]
+    
+    if(nrow(tmp.enh.enh) == 0){
+      
+      df.contacts.cluster.analysis[i, "n.genes"] <- length(unique(tmp.gene.enh$geneSymbol))
+      df.contacts.cluster.analysis[i, "n.enhancers"] <- length(unique(tmp.gene.enh$enhancer))
+      
+      max.max <- max(tmp.gene.enh[,c("TSS","TES", "enhancerstart", "enhancerstop")])
+      min.min <- min(tmp.gene.enh[,c("TSS","TES", "enhancerstart", "enhancerstop")])
+      
+      df.contacts.cluster.analysis[i,"span.cluster"] <-  max.max - min.min
+    }
+    
+    else if(nrow(tmp.gene.enh) == 0){
+      
+      df.contacts.cluster.analysis[i, "n.genes"] <- 0
+      df.contacts.cluster.analysis[i, "n.enhancers"] <- length(unique(c(tmp.gene.enh$enhancer,tmp.enh.enh$enhancer1, tmp.enh.enh$enhancer2)))
+      
+      max.max <- max(tmp.enh.enh[,c("enhancerstart1","enhancerstop1", "enhancerstart2", "enhancerstop2")])
+      min.min <- min(tmp.enh.enh[,c("enhancerstart1","enhancerstop1", "enhancerstart2", "enhancerstop2")])
+      
+      df.contacts.cluster.analysis[i,"span.cluster"] <-  max.max - min.min
+      
+    }
+    else{
+      
+      df.contacts.cluster.analysis[i, "n.genes"] <- length(unique(tmp.gene.enh$geneSymbol))
+      df.contacts.cluster.analysis[i, "n.enhancers"] <- length(unique(c(tmp.gene.enh$enhancer,tmp.enh.enh$enhancer1, tmp.enh.enh$enhancer2)))
+      
+      max.gene.enh <- max(tmp.gene.enh[,c("TSS","TES", "enhancerstart", "enhancerstop")])
+      max.enh.enh <- max(tmp.enh.enh[,c("enhancerstart1","enhancerstop1", "enhancerstart2", "enhancerstop2")])
+      
+      min.gene.enh <- min(tmp.gene.enh[,c("TSS","TES", "enhancerstart", "enhancerstop")])
+      min.enh.enh <- min(tmp.enh.enh[,c("enhancerstart1","enhancerstop1", "enhancerstart2", "enhancerstop2")])
+      
+      max.max <- max(max.gene.enh, max.enh.enh)
+      min.min <- min(min.gene.enh, min.enh.enh)
+      
+      df.contacts.cluster.analysis[i,"span.cluster"] <-  max.max - min.min
+      
+      
+    }
+  i <- i +1
+  
   }
-  
-  else if(nrow(tmp.gene.enh) == 0){
-    
-    df.contacts.cluster.analysis[i, "n.genes"] <- 0
-    df.contacts.cluster.analysis[i, "n.enhancers"] <- length(unique(c(tmp.gene.enh$enhancer,tmp.enh.enh$enhancer1, tmp.enh.enh$enhancer2)))
-    
-    max.max <- max(tmp.enh.enh[,c("enhancerstart1","enhancerstop1", "enhancerstart2", "enhancerstop2")])
-    min.min <- min(tmp.enh.enh[,c("enhancerstart1","enhancerstop1", "enhancerstart2", "enhancerstop2")])
-    
-    df.contacts.cluster.analysis[i,"span.cluster"] <-  max.max - min.min
-    
-  }
-  else{
-    
-    df.contacts.cluster.analysis[i, "n.genes"] <- length(unique(tmp.gene.enh$geneSymbol))
-    df.contacts.cluster.analysis[i, "n.enhancers"] <- length(unique(c(tmp.gene.enh$enhancer,tmp.enh.enh$enhancer1, tmp.enh.enh$enhancer2)))
-    
-    max.gene.enh <- max(tmp.gene.enh[,c("TSS","TES", "enhancerstart", "enhancerstop")])
-    max.enh.enh <- max(tmp.enh.enh[,c("enhancerstart1","enhancerstop1", "enhancerstart2", "enhancerstop2")])
-    
-    min.gene.enh <- min(tmp.gene.enh[,c("TSS","TES", "enhancerstart", "enhancerstop")])
-    min.enh.enh <- min(tmp.enh.enh[,c("enhancerstart1","enhancerstop1", "enhancerstart2", "enhancerstop2")])
-    
-    max.max <- max(max.gene.enh, max.enh.enh)
-    min.min <- min(min.gene.enh, min.enh.enh)
-    
-    df.contacts.cluster.analysis[i,"span.cluster"] <-  max.max - min.min
-    
-    
-  }
-  i <- i + 1
-
+  return(df.contacts.cluster.analysis)
 }
-length(unique(tmp.links$n.cluster)) == nrow(df.contacts.cluster.analysis)
+
+df.contacts.cluster.analysis <- HiC.intensity.contacts(tmp.links, genes.enhancers.EGRM, enhancers.enhancers.EGRM) 
+nrow(df.contacts.cluster.analysis) == length(unique(tmp.links$n.cluster))
 #TRUE
+
+#With respect to the activity by contact methodology presented in Fulco et al preprint, we integrate DHS peaks data and Chip-Seq data for H3k27ac
+#We retrieved data for bipolar neurons and try to integrate its in our cluster analysis. 
+#files are Narrowpeak tables in .bed format
+columns <- c("chrom", "start", "end", "name", "score", "strand", "signalValue", "pvalue", "qvalue", "peak")
+
+dnase_peaks <- read.table(file.choose(), header = FALSE, sep="\t", stringsAsFactors = FALSE, quote="")
+chipseq_peaks <- read.table(file.choose(), header = FALSE, sep="\t", stringsAsFactors = FALSE, quote="")
+
+colnames(dnase_peaks) <- columns ; colnames(chipseq_peaks) <- columns
 
