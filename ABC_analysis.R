@@ -8,7 +8,8 @@ library(TxDb.Hsapiens.UCSC.hg19.knownGene)
 library(igraph)
 
 setwd("/home/nash/Documents/recherche/data/ABC_impl/")
-Enhancers_Pred <- import("Predictions/EnhancerPredictions.bedpe", format="bedpe")
+
+#files are available from master branch
 Enhancers_Pred_txt <- read.table("Predictions/EnhancerPredictions.txt", header=TRUE, sep="\t")
 Gene_Pred <- read.table("Predictions/GenePredictionStats.txt", header = TRUE)
 
@@ -88,28 +89,36 @@ Enhancers_GRanges <- makeGRangesFromDataFrame(Enhancers_Pred_txt, keep.extra.col
 
 sum(width(reduce(Enhancers_GRanges)))
 #15209201 bp
+
+#Import the scz2.prs.txt SNP file 
 snps <- read.table("/home/nash/Documents/recherche/data/scz2.prs.txt", header = TRUE, sep="\t")
 
+#Significance filter (0.10)
 signi_snps <- snps[snps$p <= .10,]
 signi_id <- signi_snps$snpid
+
 nsigni_snps <- snps[snps$p >.10,]
 nsigni_id <- nsigni_snps$snpid
 
 nrow(signi_snps)
-#35895 snps significatifs au seuil de 10%
-snp <- useMart("ENSEMBL_MART_SNP", dataset = "hsapiens_snp")
-snp <- useEnsembl(biomart = "snp", dataset = "hsapiens_snp")
+#35895 significant SNPs with .10 threshold
 
+#This following steps could be replaced by snps_nsigni.csv and snps_signi.csv from master branch
+#snp <- useMart("ENSEMBL_MART_SNP", dataset = "hsapiens_snp")
 
-snps_pos_signi <- getBM(attributes = c("refsnp_id", "chr_name", "chrom_start"),
-                  filters = "snp_filter",
-                  values = signi_id,
-                  mart = snp)
+#snps_pos_signi <- getBM(attributes = c("refsnp_id", "chr_name", "chrom_start"),
+#                  filters = "snp_filter",
+#                  values = signi_id,
+#                  mart = snp)
 
-snps_pos_nsigni <- getBM(attributes = c("refsnp_id", "chr_name", "chrom_start"),
-                         filters = "snp_filter",
-                         values = nsigni_id,
-                         mart = snp)
+#snps_pos_nsigni <- getBM(attributes = c("refsnp_id", "chr_name", "chrom_start"),
+#                        filters = "snp_filter",
+#                        values = nsigni_id,
+#                         mart = snp)
+
+snps_pos_signi <- read.table("snps_signi.csv", header=TRUE, sep=";")
+snps_pos_nsigni <- read.table("snps_nsigni.csv", header=TRUE, sep=";")
+
 #To avoid issues with biomaRt, snps coordinates were exported in csv format
 snps_pos_signi <- snps_pos_signi[snps_pos_signi$chr_name %in% 1:22 | snps_pos_signi$chr_name == "X",]
 snps_pos_signi$chr_name <- paste0("chr",snps_pos_signi$chr_name)
