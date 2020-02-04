@@ -318,7 +318,7 @@ for(gene in Enhancers_Pred_txt$TargetGene){
 Enhancers_Pred_txt$CellType <- NULL
 Enhancers_Pred_txt <- na.omit(Enhancers_Pred_txt)
 
-Enhancers_Pred_txt <- read.csv2("Enhancers_Pred_annotated.csv", header=TRUE, sep=";")
+Enhancers_Pred_txt <- read.csv2("Predictions/Enhancers_Pred_annotated.csv", header=TRUE, sep=";")
 
 start.cluster = tapply(pmin(Enhancers_Pred_txt$start,Enhancers_Pred_txt$TSS),
                        compo_ABC$membership[Enhancers_Pred_txt$TargetGene],min)
@@ -444,3 +444,15 @@ cluster.TADs10.overlap
 
 #$cluster.overlaps.TADs
 #[1] 1562
+# Eliminating overlapping TADs
+keep = numeric(0)
+for (i in 1:length(TADS10))
+{
+  if(!any(seqnames(TADS10[i])==seqnames(TADS10)&((start(TADS10[i])<=start(TADS10)&end(TADS10[i])>end(TADS10))|(start(TADS10[i])<start(TADS10)&end(TADS10[i])>=end(TADS10)))))
+    keep = c(keep,i)
+}
+TADs10.distinct = TADS10[keep]
+
+cluster.TADs10.distinct <- findOverlaps(cluster.GRanges, TADs10.distinct)
+table(countLnodeHits(cluster.TADs10.distinct))
+round(tally(countLnodeHits(cluster.TADs10.distinct),format="percent"))
