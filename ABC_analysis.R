@@ -318,6 +318,8 @@ for(gene in Enhancers_Pred_txt$TargetGene){
 Enhancers_Pred_txt$CellType <- NULL
 Enhancers_Pred_txt <- na.omit(Enhancers_Pred_txt)
 
+Enhancers_Pred_txt <- read.csv2("Enhancers_Pred_annotated.csv", header=TRUE, sep=";")
+
 start.cluster = tapply(pmin(Enhancers_Pred_txt$start,Enhancers_Pred_txt$TSS),
                        compo_ABC$membership[Enhancers_Pred_txt$TargetGene],min)
 
