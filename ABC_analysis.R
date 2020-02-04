@@ -198,6 +198,13 @@ enrichment.SNPs <- matrix(c(nSNP_signi_clust, nSNP_signi_hclust,nSNP_nsigni_clus
 fisher.test(enrichment.SNPs)
 #p-value = 0.01179 --> SNP enrichment in clusters
 
+library(epitools)
+epitab(t(enrichment.SNPs),method="riskratio")$tab
+          # Outcome
+# Predictor  Disease1        p0 Disease2        p1 riskratio    lower    upper     p.value
+  # Exposed1    10371 0.2917792    25173 0.7082208  1.000000       NA       NA          NA
+  # Exposed2    18772 0.2836678    47404 0.7163322  1.011453 1.003176 1.019798 0.006529718
+
 Enhancers_Pred_full_txt <- read.table("/home/nash/Documents/recherche/data/ABC_impl/Predictions/EnhancerPredictionsAllPutative.txt", sep="\t", header = TRUE)
 genes_not_clusters <- genes.hg19[!genes.hg19$geneSymbol%in% Enhancers_GRanges$TargetGene]
 
@@ -225,6 +232,12 @@ enrichment.SNPs.ge <- matrix(c(nSNP_signi_clust, nSNP_signi_hclust_ge,nSNP_nsign
 #[2,]  9350 17407
 fisher.test(enrichment.SNPs.ge)
 #p-value = 0.1444 --> When we consider genes and enhancers which aren't in clusters, there ain't SNP enrichment in ABC score clusters
+
+epitab(t(enrichment.SNPs.ge),method="riskratio")$tab
+          # Outcome
+# Predictor  Disease1        p0 Disease2        p1 riskratio     lower    upper   p.value
+  # Exposed1    10428 0.5272525     9350 0.4727475   1.00000        NA       NA        NA
+  # Exposed2    18917 0.5207852    17407 0.4792148   1.01368 0.9953897 1.032307 0.1443885
 
 library(karyoploteR)
 
