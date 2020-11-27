@@ -5,789 +5,317 @@ library(org.Hs.eg.db)
 library(TxDb.Hsapiens.UCSC.hg19.knownGene)
 library(plyr)
 library(GenomicFeatures)
+library(coin)
+library(ensembldb)
+library(EnsDb.Hsapiens.v86)
+library(ggpubr)
+library(lme4)
+library(PerformanceAnalytics)
 setwd("/home/loic/Documents/HiC/data/export_3Dfeatures/NEU/")
 
-EnhancersPred = read.table("EnhancerPredictions.txt", header=T)
-#chr1 chr10 chr11 chr12 chr13 chr14 chr15 chr16 chr17 chr18 chr19  chr2 chr20 chr21 chr22  chr3  chr4  chr5  chr6  chr7  chr8  chr9  chrX 
-#7119  3014  4074  3690  1461  2218  2275  2933  4314  1091  4249  5365  2289   867  1952  3933  2663  3554  3294  3770  2683  2918  3000
+enhancers.promoters = process.ABC("EnhancerPredictions.txt")
+GRanges.Enhancers.Prom.RRCs = Pairs.Enh.Prom.ABC(enhancers.promoters)
 
-#Suppression du chrX des analyses
-EnhancersPred.WX = EnhancersPred[EnhancersPred$chr!="chrX",]
-EnhancersPred.WX$chr = droplevels(EnhancersPred.WX$chr)
+summary(as.numeric(table(enhancers.promoters$name)))
+summary(as.numeric(table(enhancers.promoters$TargetGene)))
 
-EnhancersPred.WX$typeOf = sub("\\|.*", "", EnhancersPred.WX$name)
+unique.Promoters.RRCs = unique(second(GRanges.Enhancers.Prom.RRCs))
+unique.Enhancers.RRCs = unique(first(GRanges.Enhancers.Prom.RRCs))
 
-#Nombre d'elements geniques et inter-geniques
-table(unique(EnhancersPred.WX[,c("name", "typeOf")])[,"typeOf"])
-# genic intergenic 
-#16980      13819 
-
-genes=unique(EnhancersPred.WX$TargetGene)
-enhancers=unique(EnhancersPred.WX$name)
-
-length(genes);length(enhancers)
-#[1] 15345
-#[1] 30799
-
-#Pour faire la distinction entre les elements presents a l'interieur des introns du gene versus ceux presents dans le gene on recupere
-#le promoter du gene
+length(findOverlaps(unique.Promoters.RRCs,unique.Enhancers.RRCs))/length(GRanges.Enhancers.Prom.RRCs)
+#2% des promoters des genes chevauchent les enhancers identifies
 txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
 genes.hg19 <- genes(txdb)
 symbol <- select(org.Hs.eg.db,keys = genes.hg19$gene_id, columns = c("SYMBOL"), keytype = "ENTREZID")
 genes.hg19$geneSymbol <- symbol$SYMBOL
 
-genesInRRCs = genes.hg19[genes.hg19$geneSymbol%in%genes]
-promoters = promoters(genesInRRCs)
+DNAseActivity.NEU = import("/home/loic/Documents/HiC/data/export_3Dfeatures/NEU/NEU_DNAse.macs2_peaks.narrowPeak.sorted", format = "narrowpeak")
+DNAseActivity.NEU$signalValue = log2(DNAseActivity.NEU$signalValue+1)
 
-df.promoters = data.frame(promoters)
-df.promoters = df.promoters[,c("seqnames", "start", "end", "geneSymbol")]
-colnames(df.promoters) = c("chr", "startProm", "endProm", "TargetGene")
+H3K27acActivity.NEU = import("/home/loic/Documents/HiC/data/export_3Dfeatures/NEU/NEU_H3k27ac_sorted_macs2_peaks.narrowPeak.sorted", format = "narrowpeak")
+H3K27acActivity.NEU$signalValue = log2(H3K27acActivity.NEU$signalValue+1)
 
-enhancers.promoters = merge(EnhancersPred.WX, df.promoters, by="TargetGene")
+H3K4me1Activity.NEU = import("/home/loic/Documents/HiC/data/H3K4me1.peaks.macs2_peaks.narrowPeak", format = "narrowpeak")
+H3K4me1Activity.NEU$signalValue = log2(H3K4me1Activity.NEU$signalValue +1)
 
-length(unique(enhancers.promoters$TargetGene))
-#13871
-length(unique(enhancers.promoters$name))
-#29089
+H3K4me3.NEU.REP1 = import("/home/loic/Documents/HiC/data/NEU_H3k4me3_REP1.bed.gz", format = "narrowpeak")
+H3K4me3.NEU.REP2 = import("/home/loic/Documents/HiC/data/NEU_H3k4me3_REP2.bed.gz", format = "narrowpeak")
+H3K4me3.NEU.REP3 = import("/home/loic/Documents/HiC/data/NEU_H3k4me3_REP3.bed.gz", format = "narrowpeak")
 
-table(unique(enhancers.promoters[,c("name", "typeOf")])[,"typeOf"])
-# genic intergenic 
-#16100      12989 
+grl.H3K4me3.NEU = GRangesList(H3K4me3.NEU.REP1, H3K4me3.NEU.REP2, H3K4me3.NEU.REP3)
 
-summary(as.numeric(table(enhancers.promoters$name)))
-summary(as.numeric(table(enhancers.promoters$TargetGene)))
-GRanges.Promoters.RRCs = GRanges(seqnames = enhancers.promoters$chr.y, ranges = IRanges(start=enhancers.promoters$startProm, end=enhancers.promoters$endProm))
-GRanges.Enhancers.RRCs = GRanges(seqnames = enhancers.promoters$chr.x, ranges = IRanges(start=enhancers.promoters$start, end=enhancers.promoters$end))
+H3K4me3Activity.NEU = unique(do.call("c", as(grl.H3K4me3.NEU, "GRangesList")))
+H3K4me3Activity.NEU$signalValue = log2(H3K4me3Activity.NEU$signalValue+1)
 
-GRanges.Enhancers.Prom.RRCs = Pairs(GRanges.Enhancers.RRCs,GRanges.Promoters.RRCs)
+H3K27me3.NEU.REP1 = import("/home/loic/Documents/HiC/data/export_3Dfeatures/NEU/H3K27me3_Rep1.bed.gz", format = "narrowpeak")
+H3K27me3.NEU.REP2 = import("/home/loic/Documents/HiC/data/export_3Dfeatures/NEU/H3K27me3_Rep2.bed.gz", format = "narrowpeak")
+H3K27me3.NEU.REP3 = import("/home/loic/Documents/HiC/data/export_3Dfeatures/NEU/H3K27me3_Rep3.bed.gz", format = "narrowpeak")
 
-unique.Promoters.RRCs = unique(GRanges.Promoters.RRCs)
-unique.Enhancers.RRCs = unique(GRanges.Enhancers.RRCs)
+grl.H3K27me3.NEU = GRangesList(H3K27me3.NEU.REP1, H3K27me3.NEU.REP2,H3K27me3.NEU.REP3)
 
-length(findOverlaps(unique.Promoters.RRCs,unique.Enhancers.RRCs))/length(GRanges.Enhancers.Prom.RRCs)
-#2% des promoters des genes chevauchent les enhancers identifies
+H3K27me3Activity.NEU = unique(do.call("c", as(grl.H3K27me3.NEU, "GRangesList")))
+H3K27me3Activity.NEU$signalValue = log2(H3K27me3Activity.NEU$signalValue+1)
 
-#Fichier des RRCs sur la base du score-ABC contenant l'ensemble des contacts genes-enhancers
-all.contacts = read.table("EnhancerPredictionsAllPutative.txt", header=T)
-all.contacts.WX = all.contacts[all.contacts$chr!="chrX", ]
-all.contacts.WX$chr = droplevels(all.contacts.WX$chr)
+CTCF.NEU.REP1 = import("NEU_REP1_CTCF.bed.gz", format = "narrowpeak")
+CTCF.NEU.REP2 =   import("NEU_REP2_CTCF.bed.gz", format = "narrowpeak")
+grL.CTCF.NEU = GRangesList(CTCF.NEU.REP1, CTCF.NEU.REP2)
 
-all.contacts.nRRCs = all.contacts.WX[all.contacts.WX$ABC.Score<0.012,c("chr", "start", "end", "name", "class", "TargetGene")]
+CTCFActivity.NEU = unique(do.call("c", as(grL.CTCF.NEU, "GRangesList")))
+CTCFActivity.NEU$signalValue = log2(CTCFActivity.NEU$signalValue+1)
 
-rm(all.contacts)
+p300.NEU.REP1 = import("ENCFF114UVX.bed.gz", format = "narrowpeak")
+p300.NEU.REP2 = import("ENCFF287VNA.bed.gz", format = "narrowpeak")
+p300.NEU.REP3 = import("ENCFF777EIJ.bed.gz", format = "narrowpeak")
+grL.p300.NEU = GRangesList(p300.NEU.REP1, p300.NEU.REP2, p300.NEU.REP3)
 
-#Recuperation des enhancers non inclus dans les RRCs
-#Fulco et al., 2019 ont demontre que le Score-ABC ne performe pas bien pour les contacts promoters-promoters
-enhancers.nRRCs = all.contacts.nRRCs[!(all.contacts.nRRCs$name%in%enhancers)&(all.contacts.nRRCs$class!="promoter"),]
-enhancers.nRRCs = na.omit(enhancers.nRRCs)
+p300Activity.NEU = unique(do.call("c", as(grL.p300.NEU, "GRangesList")))
+p300Activity.NEU$signalValue = log2(p300Activity.NEU$signalValue+1)
 
-enhancers.promoters.nRRCs = merge(enhancers.nRRCs, df.promoters, by="TargetGene")
+#Gene Expression
+expression.NEU = read.table("GSE142670_countdata_20M_neurons.txt", header=T)
+expression.NEU$GENEID = rownames(expression.NEU)
+expression.NEU[,-ncol(expression.NEU)] = log(expression.NEU[,-ncol(expression.NEU)]+1)
+correspondance = ensembldb::select(EnsDb.Hsapiens.v86, keys=rownames(expression.NEU), keytype = "GENEID", columns=c("SYMBOL", "GENEID"))
 
-GRanges.Promoters.nRRCs = GRanges(seqnames=enhancers.promoters.nRRCs$chr.y, ranges=IRanges(start=enhancers.promoters.nRRCs$startProm, end=enhancers.promoters.nRRCs$endProm))
-GRanges.Enhancers.nRRCs = GRanges(seqnames=enhancers.promoters.nRRCs$chr.x, ranges=IRanges(start=enhancers.promoters.nRRCs$start, end=enhancers.promoters.nRRCs$end))
+expression.NEU = merge(expression.NEU, correspondance, by="GENEID")
+expression.NEU$geneSymbol =  expression.NEU$SYMBOL
+expression.NEU$SYMBOL = NULL
 
+expression.NEU$median.Expr = apply(expression.NEU[,-c(1,ncol(expression.NEU))],1, median)
+expression.genes = makeGRangesFromDataFrame(merge(data.frame(genes.hg19), expression.NEU[,c("geneSymbol", "median.Expr")], by="geneSymbol"), keep.extra.columns = T)
 
-GRanges.Enhancers.Prom.nRRCs = Pairs(GRanges.Enhancers.nRRCs,GRanges.Promoters.nRRCs)
 ###################################################################################################
-
-sum(width(reduce(first(GRanges.Enhancers.Prom.RRCs))))
-# 25 557 347: couverture des enhancers geniques et intergeniques confondus
-summary(width(reduce(first(GRanges.Enhancers.Prom.RRCs))))
-
-sum(width(reduce(second(GRanges.Enhancers.Prom.RRCs))))
-# 29 551 760: couverture des promoters
-summary(width(reduce(second(GRanges.Enhancers.Prom.RRCs))))
-
-
 #Distance entre le debut du promoteur et le debut du enhancer, sans tenir compte du type de enhancer
-dist.prom.enh = enhancers.promoters$startProm-enhancers.promoters$start
-dist.prom.enh.gen = enhancers.promoters[enhancers.promoters$typeOf=="genic", "startProm"] - enhancers.promoters[enhancers.promoters$typeOf=="genic", "start"]
-dist.prom.enh.inter = enhancers.promoters[enhancers.promoters$typeOf=="intergenic", "startProm"] - enhancers.promoters[enhancers.promoters$typeOf=="intergenic", "start"]
-
-summary(dist.prom.enh)
+summary(distance.between.Pairs(GRanges.Enhancers.Prom.RRCs, absolute = F))
 #   Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
 #-4988075   -44348    -1012     -763    39730 86965203 
 
-summary(abs(dist.prom.enh))
+summary(distance.between.Pairs(GRanges.Enhancers.Prom.RRCs, absolute = T))
 #Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
 #3    12165    42022   214735   202885 86965203 
 
-summary(dist.prom.enh.gen)
-#Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
-#-4963888   -34524     -670    -1940    33104 85376637 
-
-summary(abs(dist.prom.enh.gen))
-#Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
-#5    11337    33886   174250   158709 85376637 
-
-summary(dist.prom.enh.inter)
-#Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
-#-4988075   -61290    -1120      642    51239 86965203 
-
-summary(abs(dist.prom.enh.inter))
-#Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
-#3    13498    56138   263101   264058 86965203 
 
 #Nombre de contacts aval et amont: 
 n.aval = sum(ifelse(enhancers.promoters$startProm<enhancers.promoters$start,1,0))
 n.amont= sum(ifelse(enhancers.promoters$startProm>enhancers.promoters$start,1,0))
 
 n.aval/(n.amont+n.aval)
-#Les enhancers presentent-ils un profil d'association similaire aux genes ?
-asso.enhancers = as.numeric(table(EnhancersPred.WX$name))
-asso.genes = as.numeric(table(EnhancersPred.WX$TargetGene))
-
-summary(asso.enhancers)
-#Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-#0.000   1.000   1.000   2.198   2.000  71.000
-
-summary(asso.genes)
-#Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-#0.000   2.000   4.000   4.386   6.000  26.000 
-
-sd(asso.enhancers); sd(asso.genes)
-
-e = data.frame(cbind("enhancers", asso.enhancers))
-g = data.frame(cbind("genes", asso.genes))
-colnames(e) = c("type", "n")
-colnames(g) = colnames(e)
-eg = rbind(e,g) 
-eg$n = as.numeric(as.character(eg$n))
-
-#Ici j'utilise une anova et sa contrepartie non-parametrique pour savoir si les resultats obtenus offrent la meme conclusion
-anova(lm(n~type, eg)) #difference de moyennes entre les groupes
-kruskal.test(n~type,eg) #difference entre les rangs moyens dans les deux groupes
-
-#Parce que les deux tests offrent des resultats significatifs au seuil de 5%, on s'interesse au sens de l'effet, a savoir: 
-#Est-ce que les genes sont plus associes que les enhancers ? 
-#Sens de l'effet: 
-t.test(asso.genes,asso.enhancers, alternative = "greater")
-#Les genes sont en moyenne plus associes avec les enhancers
 
 #Creation des paires promoters-enhancers
-start.Pair = sapply(GRanges.Enhancers.Prom.RRCs, function(x) min(start(first(x)), start(second(x))))
-end.Pair = sapply(GRanges.Enhancers.Prom.RRCs, function(x) max(end(first(x)), end(second(x))))
-
-GRanges.Pair.Prom.Enh = GRanges(seqnames = seqnames(first(GRanges.Enhancers.Prom.RRCs)), ranges=IRanges(start.Pair, end.Pair, names=paste0("Pair",1:length(GRanges.Enhancers.Prom.RRCs))))
-
-##############################################################################################
-##################################TADs########################################################
-##############################################################################################
-
-##############################Directionality Index############################################
-TADs.DI = read.table("DI/finaldomaincalls_allchrs", header = F, sep="\t")
-TADs.DI = na.omit(TADs.DI)
-TADs.DI.WX = TADs.DI[TADs.DI$V1 != "chr23",]
-
-GRanges.TADs.DI = GRanges(seqnames = TADs.DI.WX$V1, ranges = IRanges(start=TADs.DI.WX$V2, end=TADs.DI.WX$V3, names=paste0("TAD", 1:nrow(TADs.DI.WX))))
-
-sum(width(GRanges.TADs.DI))
-#2 547 799 532
-
-length(GRanges.TADs.DI)
-#3309
-
-summary(width(GRanges.TADs.DI))
-#Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-#50001  330001  570001  769961  980001 4810001
-
-export(Pairs(GRanges.TADs.DI,GRanges.TADs.DI), "TADs.DI.bedpe", format="bedpe")
-
-#############################Insulation#########################################################
-boundaries.Ins = read.table("INS/output_INS/allchrs_dense_annotated.is400001.ids100001.insulation.boundaries", header=T)
-chroms = c(paste0("chr", 1:22), "chrX")
-
-for(chr in chroms){
-  boundaries.Ins[grepl(paste0(chr,":"),boundaries.Ins$header, fixed=T),"chr"] = chr
-}
-
-boundaries.Ins.WX = boundaries.Ins[boundaries.Ins$chr!="chrX",]
-
-GRanges.boundaries = GRanges(seqnames = boundaries.Ins.WX$chr, ranges=IRanges(start=boundaries.Ins.WX$start,end=boundaries.Ins.WX$end))
-GRanges.boundaries.noverlap = reduce(GRanges.boundaries)
-
-split.GRanges.boundaries.noverlap = split(GRanges.boundaries.noverlap, seqnames(GRanges.boundaries.noverlap))
-
-first.by.chr = lapply(split.GRanges.boundaries.noverlap, function(x) {
-  GRanges(seqnames = seqnames(x[1]), ranges = IRanges(start = 0, end = start(x[1])))})
-
-GRanges.TADs.INS = lapply(split.GRanges.boundaries.noverlap, function(x) {
-  TADs.by.chr = GRanges()
-  for(bound in 2:length(x)){
-  TADs.by.chr[bound - 1] = GRanges(seqnames = seqnames(x[bound-1]), ranges = IRanges(end(x[bound-1]), start(x[bound])))
-  }
-  TADs.by.chr
-})
-
-grl = GRangesList(unlist(as(GRanges.TADs.INS,"GRangesList")),unlist(as(first.by.chr,"GRangesList")))
-TADs.INS = unlist(grl)
-
-length(TADs.INS)
-#5211
-
-sum(width(TADs.INS))
-#2 493 485 211
-
-summary(width(TADs.INS))
-# Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
-#10001   210001   410001   478504   590001 21130001 
-
-export(Pairs(TADs.INS,TADs.INS),"TADs.INS.bedpe")
-
-#######################################Arrowhead#############################################
-#Importation des TADs generes par Arrowhead (sans chrX)
-TADs.Rao = import("10000_blocks.bedpe", format="bedpe")
-
-length(first(TADs.Rao))
-#4252
-
-sum(width(first(TADs.Rao)))
-#1 701 990 000
-
-summary(width(first(TADs.Rao)))
-#Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-#120000  200000  280000  400280  410000 5470000
-
-sd(width(GRanges.TADs.DI));sd(width(TADs.INS));sd(width(first(TADs.Rao)))
-
-hist(width(TADs.INS))
-hist(width(GRanges.TADs.DI))
-hist(width(first(TADs.Rao)))
-
-#Test d'adequation des distributions de couverture des TADs
-ks.test(width(TADs.INS), width(GRanges.TADs.DI))
-ks.test(width(TADs.INS), width(first(TADs.Rao)))
-ks.test(width(first(TADs.Rao)), width(GRanges.TADs.DI))
-
-#TADs consensus
-OverlappingINSRao = subsetByOverlaps(TADs.INS,TADs.Rao)
-OverlappingINSDI = subsetByOverlaps(TADs.INS,GRanges.TADs.DI)
-OverlappingRaoDI = subsetByOverlaps(first(TADs.Rao),GRanges.TADs.DI)
-#3866 TADs qui se chevauchent entre le score d'Insulation et methode de Rao
-#5109 TADs qui se chevauchent entre le score d'Insulation et DI
-#4235 TADs qui se chevauchent entre Rao et DI
-
-OverlappingINSRaoDI = subsetByOverlaps(subsetByOverlaps(TADs.INS,TADs.Rao),GRanges.TADs.DI)
-#3841 TADs qui se chevauchent entre les 3 definitions (procedure a ameliorer pour prendre le plus grand TAD)
-
-
-##############################################################################################
-################################RRCs & TADs###################################################
-##############################################################################################
-#Chevauchement des paires genes-enhancers sur les TADs
-
-chisq.PairesTADS= matrix(0, ncol=2, nrow=3)
-overlapsPairsDI = table(countOverlaps(GRanges.Pair.Prom.Enh , GRanges.TADs.DI))
-#0     1     2     3     4     5     6     7     8     9    10    11    12   103   104 
-#2684 50471  7048  1663   495   148    81    39    16     3     3     2     1     1     3 
-overlapsPairsDI[-1]/sum(overlapsPairsDI[-1])
-
-#Pourcentage des Paires chevauchant au moins 1 TAD
-#           1            2            3            4            5            6            7            8            9           10 
-#8.415480e-01 1.175176e-01 2.772868e-02 8.253577e-03 2.467736e-03 1.350585e-03 6.502818e-04 2.667823e-04 5.002168e-05 5.002168e-05 
-#11           12          103          104 
-#3.334778e-05 1.667389e-05 1.667389e-05 5.002168e-05 
-
-DI.1=overlapsPairsDI[-1][1]
-sup1DI = sum(overlapsPairsDI[-1][2:length(overlapsPairsDI[-1])])
-
-chisq.PairesTADS[1,] = c(DI.1, sup1DI)
-
-overlapsPairsINS = table(countOverlaps(GRanges.Pair.Prom.Enh, TADs.INS))
-#0     1     2     3     4     5     6     7     8     9    10    11    12    13    14    17   151   152   153   154 
-#8525 44493  5725  2152   913   396   196   110    55    40    13     8    15     8     4     1     1     1     1     1  
-
-overlapsPairsINS[-1]/sum(overlapsPairsINS[-1])
-# 1            2            3            4            5            6            7            8            9           10 
-#8.219201e-01 1.057580e-01 3.975394e-02 1.686587e-02 7.315316e-03 3.620712e-03 2.032032e-03 1.016016e-03 7.389208e-04 2.401493e-04 
-#11           12           13           14           17          151          152          153          154 
-#1.477842e-04 2.770953e-04 1.477842e-04 7.389208e-05 1.847302e-05 1.847302e-05 1.847302e-05 1.847302e-05 1.847302e-05 
-
-
-INS.1=overlapsPairsINS[-1][1]
-sup1INS= sum(overlapsPairsINS[-1][2:length(overlapsPairsINS[-1])])
-
-chisq.PairesTADS[2,] = c(INS.1, sup1INS)
-
-overlapsPairsRao = table(countOverlaps(GRanges.Pair.Prom.Enh , TADs.Rao))
-# 0     1     2     3     4     5     6     7     8     9    10    11    13   100   101 
-#17554 33093  8406  2192   788   351   159    64    30     9     6     1     1     3     1 
-
-overlapsPairsRao[-1]/sum(overlapsPairsRao[-1])
-#1            2            3            4            5            6            7            8            9           10 
-#7.337043e-01 1.863693e-01 4.859879e-02 1.747073e-02 7.782015e-03 3.525186e-03 1.418943e-03 6.651295e-04 1.995388e-04 1.330259e-04 
-#11           13          100          101 
-#2.217098e-05 2.217098e-05 6.651295e-05 2.217098e-05 
-
-Rao.1=overlapsPairsRao[-1][1]
-sup1Rao= sum(overlapsPairsRao[-1][2:length(overlapsPairsRao[-1])])
-
-chisq.PairesTADS[3,] = c(Rao.1, sup1Rao)
-
-#H0: Independance du nombre de chevauchement des paires de genes-enhancers independamment de la methode de creation des TADs
-#H1: La methode de creation des TADs impacte le nombre de chevauchement des paires genes-enhancers 
-chisq.test(chisq.PairesTADS, correct = F)
-#Dependance du nombre de chevauchement des paires genes-enhancers par rapport a la methode de creation des TADs
+GRanges.Pair.ABC = coverage.By.Pair(GRanges.Enhancers.Prom.RRCs)
 
 #Construction des graphs:
+graph.ABC = AL1C.Crn.ABC(enhancers.promoters)
+compo.graph.ABC = components(graph.ABC)
 
-nodes = enhancers.promoters[,c("name", "TargetGene")]
-vertices = data.frame(rbind(matrix(unique(enhancers.promoters$name), ncol=1), matrix(unique(enhancers.promoters$TargetGene), ncol=1)))
-
-colnames(vertices) = c("name")
-vertices$type = vertices[,"name"]%in%enhancers
-vertices$col = ifelse(vertices[,"name"]%in%enhancers, "blue", "red")
-graph = graph_from_data_frame(d=nodes, directed = F, vertices=vertices)
-
-ego.graph = make_ego_graph(graph)
-subgraphs = decompose(graph)
-
-structure.relations.prom = lapply(subgraphs, function(x) {
-  if(sum(names(V(x)) %in% unique(enhancers.promoters$TargetGene))==1 & length(V(x))>2){
-    return(1)
-  }
-})
-
-prom.Nenhancers = lapply(subgraphs, function(x) {
-  if(sum(names(V(x)) %in% unique(enhancers.promoters$TargetGene))==1 & length(V(x))>2){
-    return(x)
-  }
-})
-
-
-sum(unlist(structure.relations.prom))
-#461 RRCs ou 1 gene est relie a plusieurs enhancers 
-
-prom.Nenhancers = list.clean(prom.Nenhancers,fun = is.null, recursive = F)
-plot(prom.Nenhancers[[460]])
-
-compo.graph = components(graph)
-
-compo.graph$no
+decompose(graph.ABC)
+compo.graph.ABC$no
 #1633
 
+
 #Nombre moyen d'elements par RRCs
-summary(as.numeric(table(compo.graph$csize)))
-#Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-#1.000   1.000   2.000   9.226   4.000 252.000 
+summary(as.numeric(compo.graph.ABC$csize))
+# Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#2.00    3.00    6.00   26.31   24.00  506.00 
 
 #metriques de complexite:
-length(table(compo.graph$csize))
+length(table(compo.graph.ABC$csize))
 #177 structures de RRCs differentes 
+table(compo.graph.ABC$csize)/sum(table(compo.graph.ABC$csize))
+complexity.ABC = Complexity.Crn(graph.ABC,enhancers.promoters$name,enhancers.promoters$TargetGene ,extract.central.genes=T)
 
-n.prom = length(unique(enhancers.promoters$name))
-n.enhancers = length(unique(enhancers.promoters$TargetGene))
+GRanges.cluster.ABC = coverage.By.Crn(graph.ABC, enhancers.promoters)$clusters
+enhancers.promoters = coverage.By.Crn(graph.ABC, enhancers.promoters)$data.frame
 
-one.prom.one.enh = table(compo.graph$csize)[1][[1]]
+summary(width(GRanges.Pair.ABC))
+summary(width(GRanges.cluster.ABC))
 
-one.prom.one.enh/n.prom #0.08 % de promoteurs monogames
-one.prom.one.enh/n.enhancers #1% d'enhancers monogames
-
-prom.enhancer.clusters = tapply(names(compo.graph$membership),compo.graph$membership,function(vec,genes) table(vec%in%genes),genes=enhancers.promoters$TargetGene)
-prom.enhancer.clusters.mat = matrix(unlist(prom.enhancer.clusters),length(unlist(prom.enhancer.clusters))/2,2,byrow = T)
-
-#Analyse par gene 
-tapply(prom.enhancer.clusters.mat[,1],prom.enhancer.clusters.mat[,2],summary)
-#Analyse par enhancer
-tapply(prom.enhancer.clusters.mat[,2],prom.enhancer.clusters.mat[,1],summary)
-
-#Proportion des relation 1-1-n
-sum(prom.enhancer.clusters.mat[prom.enhancer.clusters.mat[,1]==1,2])/n.prom
-#0.01344151
-
-sum(prom.enhancer.clusters.mat[prom.enhancer.clusters.mat[,2]==1,1])/n.enhancers
-#0.1412299
-
-df.membership = data.frame(compo.graph$membership)
-df.membership$name = rownames(df.membership)
-df.membership = df.membership[df.membership$name%in%nodes$name,]
-
-enhancers.promoters = merge(enhancers.promoters, df.membership, by="name")
-enhancers.promoters$minStart = apply(enhancers.promoters[,c("start", "startProm")], 1, min)
-enhancers.promoters$maxEnd = apply(enhancers.promoters[,c("end", "endProm")], 1, max)
-
-start.cluster = aggregate(minStart~compo.graph.membership, enhancers.promoters, min)
-end.cluster = aggregate(maxEnd~compo.graph.membership, enhancers.promoters, max)
-
-df.start.end = unique(merge(merge(start.cluster, end.cluster, by="compo.graph.membership"), enhancers.promoters[,c("chr.x", "compo.graph.membership")], by="compo.graph.membership"))
-
-
-GRanges.cluster = GRanges(seqnames = df.start.end$chr, ranges = IRanges(start=df.start.end$minStart, end=df.start.end$maxEnd, names=df.start.end$compo.graph.membership))
-
-
-chisq.RRCsTADS= matrix(0, ncol=2, nrow=3)
-
-#Chevauchement de TADs par les RRCs
-
-overlapsRRCsDI = table(countOverlaps(GRanges.cluster , GRanges.TADs.DI))
-# 0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15   16   17   18   19   21   22   24   30   42  109 
-#56 1044  167   70   45   45   37   30   31   22   20    9   13    9    8    6    3    4    2    4    1    3    1    1    1    1 
-
-overlapsRRCsDI[-1]/sum(overlapsRRCsDI[-1])
-#1            2            3            4            5            6            7            8            9           10 
-#0.6620164870 0.1058972733 0.0443880786 0.0285351934 0.0285351934 0.0234622701 0.0190234623 0.0196575777 0.0139505390 0.0126823082 
-#11           12           13           14           15           16           17           18           19           21 
-#0.0057070387 0.0082435003 0.0057070387 0.0050729233 0.0038046925 0.0019023462 0.0025364616 0.0012682308 0.0025364616 0.0006341154 
-#22           24           30           42          109 
-#0.0019023462 0.0006341154 0.0006341154 0.0006341154 0.0006341154 
-
-DI.1=overlapsRRCsDI[-1][1]
-sup1DI = sum(overlapsRRCsDI[-1][2:length(overlapsRRCsDI[-1])])
-
-overlapsRRCsINS = table(countOverlaps(GRanges.cluster , TADs.INS))
-#  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  23  24  25  26  27  28  29  30  32  33  34  35  43 
-#135 942 130  71  49  40  31  24  28  25  24  17  17  14  11  10   5   8  11   4   5   1   4   3   1   4   2   3   2   1   2   2   2   2   1 
-#68 162 
-#1   1 
-
-overlapsRRCsINS[-1]/sum(overlapsRRCsINS[-1])
-#1            2            3            4            5            6            7            8            9           10 
-#0.6288384513 0.0867823765 0.0473965287 0.0327102804 0.0267022697 0.0206942590 0.0160213618 0.0186915888 0.0166889186 0.0160213618 
-#11           12           13           14           15           16           17           18           19           20 
-#0.0113484646 0.0113484646 0.0093457944 0.0073431242 0.0066755674 0.0033377837 0.0053404539 0.0073431242 0.0026702270 0.0033377837 
-#21           23           24           25           26           27           28           29           30           32 
-#0.0006675567 0.0026702270 0.0020026702 0.0006675567 0.0026702270 0.0013351135 0.0020026702 0.0013351135 0.0006675567 0.0013351135 
-#33           34           35           43           68          162 
-#0.0013351135 0.0013351135 0.0013351135 0.0006675567 0.0006675567 0.0006675567 
-
-INS.1=overlapsRRCsINS[-1][1]
-sup1INS = sum(overlapsRRCsINS[-1][2:length(overlapsRRCsINS[-1])])
-
-overlapsRRCsRao = table(countOverlaps(GRanges.cluster , TADs.Rao))
-#  0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15  16  17  18  19  20  21  22  23  24  25  26  27  29  31  33  51  58 107 
-#348 682 192  79  56  42  28  33  28  20  14  21  10   9   9  10  10   9   4   4   1   3   3   4   1   3   2   2   1   1   1   1   1   1 
-
-overlapsRRCsRao[-1]/sum(overlapsRRCsRao[-1])
-#1            2            3            4            5            6            7            8            9           10 
-#0.5307392996 0.1494163424 0.0614785992 0.0435797665 0.0326848249 0.0217898833 0.0256809339 0.0217898833 0.0155642023 0.0108949416 
-#11           12           13           14           15           16           17           18           19           20 
-#0.0163424125 0.0077821012 0.0070038911 0.0070038911 0.0077821012 0.0077821012 0.0070038911 0.0031128405 0.0031128405 0.0007782101 
-#21           22           23           24           25           26           27           29           31           33 
-#0.0023346304 0.0023346304 0.0031128405 0.0007782101 0.0023346304 0.0015564202 0.0015564202 0.0007782101 0.0007782101 0.0007782101 
-#51           58          107 
-#0.0007782101 0.0007782101 0.0007782101 
-
-Rao.1=overlapsRRCsRao[-1][1]
-sup1Rao = sum(overlapsRRCsRao[-1][2:length(overlapsRRCsRao[-1])])
-
-chisq.RRCsTADS[1,]= c(DI.1, sup1DI)
-chisq.RRCsTADS[2,]= c(INS.1, sup1INS)
-chisq.RRCsTADS[3,]= c(Rao.1, sup1Rao)
-
-chisq.test(chisq.RRCsTADS, correct = F)
-
-#Proportion des RRCs incluent totalement dans un TAD construit sur la base du score d'insulation
-OverlapsRRCINS = findOverlaps(GRanges.cluster, TADs.INS)
-
-uniqueOverlapsRRCINS = names(table(queryHits(OverlapsRRCINS))[table(queryHits(OverlapsRRCINS)) == 1])
-subsetOverlapsRRCINS = OverlapsRRCINS[queryHits(OverlapsRRCINS)%in%uniqueOverlapsRRCINS]
-
-RRCsPleinementInclusINS = sum(ifelse(start(GRanges.cluster[queryHits(subsetOverlapsRRCINS)]) >= start(TADs.INS[subjectHits(subsetOverlapsRRCINS)]) & end(GRanges.cluster[queryHits(subsetOverlapsRRCINS)])<=end(TADs.INS[subjectHits(subsetOverlapsRRCINS)]), 1,0))
-#Proportion des RRCs chevauchant un seul TAD inclus totalement dans un TAD
-RRCsPleinementInclusINS/overlapsRRCsINS[2]
-#Proportion des RRCs chevauchant au moins un TAD inclus dans un seul TAD
-RRCsPleinementInclusINS/sum(overlapsRRCsINS[-1])
-
-#Proportion des RRCs incluent totalement dans un TAD construit sur la base de DI
-OverlapsRRCDI = findOverlaps(GRanges.cluster, GRanges.TADs.DI)
-
-uniqueOverlapsRRCDI = names(table(queryHits(OverlapsRRCDI))[table(queryHits(OverlapsRRCDI)) == 1])
-subsetOverlapsRRCDI = OverlapsRRCDI[queryHits(OverlapsRRCDI)%in%uniqueOverlapsRRCDI]
-
-RRCsPleinementInclusDI = sum(ifelse(start(GRanges.cluster[queryHits(subsetOverlapsRRCDI)]) >= start(GRanges.TADs.DI[subjectHits(subsetOverlapsRRCDI)]) & end(GRanges.cluster[queryHits(subsetOverlapsRRCDI)])<=end(GRanges.TADs.DI[subjectHits(subsetOverlapsRRCDI)]), 1,0))
-#Proportion des RRCs chevauchant un seul TAD inclus totalement dans un TAD
-RRCsPleinementInclusDI/overlapsRRCsDI[2]
-#Proportion des RRCs chevauchant au moins un TAD inclus dans un seul TAD
-RRCsPleinementInclusDI/sum(overlapsRRCsDI[-1])
-
-#Proportion des RRCs incluent totalement dans un TAD construit sur la base de DI
-OverlapsRRCRao = findOverlaps(GRanges.cluster, TADs.Rao)
-
-uniqueOverlapsRRCRao = names(table(queryHits(OverlapsRRCRao))[table(queryHits(OverlapsRRCRao)) == 1])
-subsetOverlapsRRCRao = OverlapsRRCRao[queryHits(OverlapsRRCRao)%in%uniqueOverlapsRRCRao]
-
-RRCsPleinementInclusRao = sum(ifelse(start(GRanges.cluster[queryHits(subsetOverlapsRRCRao)]) >= start(TADs.Rao[subjectHits(subsetOverlapsRRCRao)]) & end(GRanges.cluster[queryHits(subsetOverlapsRRCRao)])<=end(TADs.Rao[subjectHits(subsetOverlapsRRCRao)]), 1,0))
-
-#Proportion des RRCs chevauchant un seul TAD inclus totalement dans un TAD
-RRCsPleinementInclusRao/overlapsRRCsRao[2]
-#Proportion des RRCs chevauchant au moins un TAD inclus dans un seul TAD
-RRCsPleinementInclusRao/sum(overlapsRRCsRao[-1])
-
-
-#Lien entre RRCs chevauchant les TADs et taille des TADs
-df.nRRCs.lengthRao = data.frame(matrix(0, ncol=3, nrow=length(TADs.Rao)))
-df.nRRCs.lengthINS = data.frame(matrix(0, ncol=3, nrow =length(TADs.INS)))
-df.nRRCs.lengthDI = data.frame(matrix(0, ncol=3, nrow =length(GRanges.TADs.DI)))
-
-ORaoRRCs = countOverlaps(TADs.Rao, GRanges.cluster)
-ODIRRCs = countOverlaps(GRanges.TADs.DI, GRanges.cluster)
-OINSRRCs = countOverlaps(TADs.INS, GRanges.cluster)
-
-for(o in 1:length(ORaoRRCs)){
-  
-  df.nRRCs.lengthRao[o,] = c("Rao",width(first(TADs.Rao[o])),ORaoRRCs[o])
-}
-
-for(o in 1:length(ODIRRCs)){
-  
-  df.nRRCs.lengthDI[o,] = c("DI",width(GRanges.TADs.DI[o]),ODIRRCs[o])
-}
-
-for(o in 1:length(OINSRRCs)){
-  
-  df.nRRCs.lengthINS[o,] = c("INS",width(TADs.INS[o]),OINSRRCs[o])
-}
-
-df.nRRCs.length = data.frame(rbind( df.nRRCs.lengthRao,rbind(df.nRRCs.lengthDI, df.nRRCs.lengthINS)))
-df.nRRCs.length$X2 = as.numeric(df.nRRCs.length$X2)
-df.nRRCs.length$X3 = as.numeric(df.nRRCs.length$X3)
-
-cor.test(df.nRRCs.length$X2, df.nRRCs.length$X3, method="spearman")
+t.test(width(GRanges.cluster.ABC), width(GRanges.Pair.ABC), alternative = "greater")
+wilcox.test(width(GRanges.cluster.ABC), width(GRanges.Pair.ABC))
 
 ###############################################################################################
 ##################################RRCs & Compartiments#########################################
 ###############################################################################################
+t = define.active.compartments("A_B/output/PC/allchrs_PC.1Mb.txt", genes=genes.hg19)
 
-PC.compartiments.500Kb = read.table("A_B/output/PC/allchrs_PC.500Kb.txt", header=F)
-colnames(PC.compartiments.500Kb) = c("chr", "bin", "PC1", "PC2", "PC3")
-PC.compartiments.500Kb.WX = PC.compartiments.500Kb[PC.compartiments.500Kb$chr!="chrX",]
+t$ngenes = countOverlaps(t, genes.hg19)
+# t$PC1 = t$PC1*-1
 
-PC.compartiments.1Mb = read.table("A_B/output/PC/allchrs_PC.1Mb.txt", header=F)
+Overlaps.Comp.DNAse = findOverlaps(t, DNAseActivity.NEU)
+subset.Comp.DNAse = DNAseActivity.NEU[subjectHits(Overlaps.Comp.DNAse)]
 
-colnames(PC.compartiments.1Mb) = colnames(PC.compartiments.500Kb)
-PC.compartiments.1Mb.WX = PC.compartiments.1Mb[PC.compartiments.1Mb$chr!="chrX", ]
+mcols(t)[unique(queryHits(Overlaps.Comp.DNAse)), "DNAse"] = aggregate(subset.Comp.DNAse$signalValue, list(queryHits(Overlaps.Comp.DNAse)), mean, na.rm=T)$x
 
-list.PC.1Mb.compartiments = list()
-list.PC.500Kb.compartiments = list()
+Overlaps.Comp.expr = findOverlaps(t,expression.genes)
+subset.Comp.expr = expression.genes[subjectHits(Overlaps.Comp.expr)]
 
-for(chr in chroms[-length(chroms)]){
-  PC.compartiments.1Mb.tmp = PC.compartiments.1Mb.WX[PC.compartiments.1Mb.WX$chr ==chr,]
-  
-  windows.1Mb = seq(0, 1000000*(nrow(PC.compartiments.1Mb.tmp)), 1000000)
-  start.stop.1Mb = data.frame(cbind(windows.1Mb[-length(windows.1Mb)], windows.1Mb[-1]))
-  colnames(start.stop.1Mb) = c("start", "stop")
-  
-  
-  PC.compartiments.500Kb.tmp = PC.compartiments.500Kb.WX[PC.compartiments.500Kb.WX$chr==chr,]
-  
-  windows.500Kb = seq(0, 500000*(nrow(PC.compartiments.500Kb.tmp)), 500000)
-  start.stop.500Kb = data.frame(cbind(windows.500Kb[-length(windows.500Kb)], windows.500Kb[-1]))
-  colnames(start.stop.500Kb) = c("start", "stop")
-  
-  list.PC.1Mb.compartiments[[chr]] = cbind(PC.compartiments.1Mb.tmp, start.stop.1Mb)
-  list.PC.500Kb.compartiments[[chr]] = cbind(PC.compartiments.500Kb.tmp, start.stop.500Kb)
-}
+mcols(t)[unique(queryHits(Overlaps.Comp.expr)), "expr"] = aggregate(subset.Comp.expr$median.Expr, list(queryHits(Overlaps.Comp.expr)), mean, na.rm=T)$x
 
-PC.compartiments.1Mb.analyse = do.call(rbind, list.PC.1Mb.compartiments)
-PC.compartiments.500Kb.analyse = do.call(rbind, list.PC.500Kb.compartiments)
+t$Compartment = ifelse(t$PC1>0, "A","B")
 
-#Le signe des vecteurs propres est arbitraire, multiplication par -1
-PC.compartiments.1Mb.analyse[,3:5] = PC.compartiments.1Mb.analyse[,3:5]*-1
-PC.compartiments.500Kb.analyse[,3:5] = PC.compartiments.500Kb.analyse[,3:5]*-1
+t.A = data.frame(mcols(t[t$Compartment=="A"]))
+t.A[is.na(t.A)] = 0
 
-GRanges.PC.1Mb = GRanges(seqnames = PC.compartiments.1Mb.analyse$chr, ranges=IRanges(start = PC.compartiments.1Mb.analyse$start,end =PC.compartiments.1Mb.analyse$stop,names=paste0("bin", 1:nrow(PC.compartiments.1Mb.analyse))),
-                     PC1=PC.compartiments.1Mb.analyse$PC1, PC2=PC.compartiments.1Mb.analyse$PC2, PC3=PC.compartiments.1Mb.analyse$PC3)
-
-GRanges.PC.500Kb = GRanges(seqnames = PC.compartiments.500Kb.analyse$chr, ranges=IRanges(start = PC.compartiments.500Kb.analyse$start,end =PC.compartiments.500Kb.analyse$stop,names=paste0("bin", 1:nrow(PC.compartiments.500Kb.analyse))),
-                         PC1=PC.compartiments.500Kb.analyse$PC1, PC2=PC.compartiments.500Kb.analyse$PC2, PC3=PC.compartiments.500Kb.analyse$PC3)
-
-Overlaps.RRCs.Compartiments.1Mb = findOverlaps(GRanges.PC.1Mb, GRanges.cluster)
-Overlaps.RRCs.Compartiments.500Kb = findOverlaps(GRanges.PC.500Kb, GRanges.cluster)
-
-GRanges.PC.1Mb$ngenes = countOverlaps(GRanges.PC.1Mb, genes.hg19)
-GRanges.PC.500Kb$ngenes = countOverlaps(GRanges.PC.500Kb, genes.hg19)
-
-df.PC.1Mb = data.frame(GRanges.PC.1Mb)
-df.PC.500Kb = data.frame(GRanges.PC.500Kb)
-
-#Compartementalisation, l'analyse est faite en lien avec la densite de genes, d'enhancers et de RRCs
-
-#Correlation de Spearman entre la densite de genes et la valeur des CP 
-cor(df.PC.1Mb$PC1, df.PC.1Mb$ngenes, method="spearman")
-cor(df.PC.1Mb$PC2, df.PC.1Mb$ngenes, method="spearman")
-cor(df.PC.1Mb$PC3, df.PC.1Mb$ngenes, method="spearman")
-
-#1Mb: Sur l'ensemble des autosomes, la premiere composante traduit la compartementalisation
-
-cor(df.PC.500Kb$PC1, df.PC.500Kb$ngenes, method="spearman")
-cor(df.PC.500Kb$PC2, df.PC.500Kb$ngenes, method="spearman")
-cor(df.PC.500Kb$PC3, df.PC.500Kb$ngenes, method="spearman")
+cor(t.A$PC1, t.A$ngenes, method="spearman")
+cor(t.A$PC1, t.A$expr, method="spearman")
+cor(t.A$PC1, t.A$DNAse, method="spearman")
 
 
-#Analyse par chromosome
-cor.PC1.genes = ddply(df.PC.1Mb, .(seqnames), summarise, "corr" = cor(PC1, ngenes, method = "spearman"))
-cor.PC2.genes = ddply(df.PC.1Mb, .(seqnames), summarise, "corr" = cor(PC2, ngenes, method = "spearman"))
-cor.PC3.genes = ddply(df.PC.1Mb, .(seqnames), summarise, "corr" = cor(PC3, ngenes, method = "spearman"))
+consecutive.Compartment = rle(t$Compartment)
 
-cor.densite.genes.PC = merge(merge(cor.PC1.genes, cor.PC2.genes, by="seqnames"),cor.PC3.genes, by="seqnames")
-colnames(cor.densite.genes.PC) = c("chr", "COR.PC1.DENSITE", "COR.PC2.DENSITE", "COR.PC3.DENSITE")
+CompartmentsByChr = split(t, seqnames(t))
+CompartmentsByChr$chrX =NULL
 
-cor.densite.genes.PC
-
-#Distinction entre compartiment A et compartiment B: 
-#Utilisation de la mediane ou de la moyenne pour distinguer les compartiments A des compartiments B
-densite.moyenne.genes = mean(df.PC.1Mb$ngenes)
-densite.mediane.genes = median(df.PC.1Mb$ngenes)
-
-GRanges.PC.1Mb$Compartiment = ifelse(GRanges.PC.1Mb$ngenes>densite.mediane.genes, "A", "B")
-df.PC.1Mb$Compartiment = ifelse(df.PC.1Mb$ngenes>densite.mediane.genes, "A", "B")
-
-
-GRanges.PC.1Mb$nprom = countOverlaps(GRanges.PC.1Mb, unique(second(GRanges.Enhancers.Prom.RRCs)))
-GRanges.PC.1Mb$nenh = countOverlaps(GRanges.PC.1Mb, unique(first(GRanges.Enhancers.Prom.RRCs)))
-
-sum(width(GRanges.PC.1Mb))
-#2 734 002 734
-
-length(GRanges.PC.1Mb)
-
-length(GRanges.PC.1Mb[GRanges.PC.1Mb$Compartiment=="A"])
-#1345
-sum(width(GRanges.PC.1Mb[GRanges.PC.1Mb$Compartiment=="A"]))
-#1 345 001 345
-
-length(GRanges.PC.1Mb[GRanges.PC.1Mb$Compartiment=="B"])
-#1389
-sum(width(GRanges.PC.1Mb[GRanges.PC.1Mb$Compartiment=="B"]))
-#1 389 001 389
-
-Overlap.RRCs.Comp = findOverlaps(GRanges.cluster, GRanges.PC.1Mb)
-nOverlapsRRCsCOMP = countOverlaps(GRanges.cluster, GRanges.PC.1Mb)
-
-table.nOverlapsRRCsCOMP = table(nOverlapsRRCsCOMP)
-table.nOverlapsRRCsCOMP[-1] / sum(table.nOverlapsRRCsCOMP[-1])
-
-sum(countOverlaps(GRanges.cluster, GRanges.PC.1Mb[GRanges.PC.1Mb$Compartiment=="A"]))
-sum(countOverlaps(GRanges.cluster, GRanges.PC.1Mb[GRanges.PC.1Mb$Compartiment=="B"]))
-
-GRanges.PC.1Mb$nRRCs = countOverlaps(GRanges.PC.1Mb, GRanges.cluster)
-
-sum(GRanges.PC.1Mb$nRRCs[GRanges.PC.1Mb$Compartiment=="A"]) / sum(GRanges.PC.1Mb$nRRCs)
-
-#RRCs inclus dans un seul compartiment: 
-RRCsInCOMP=Overlap.RRCs.Comp[queryHits(Overlap.RRCs.Comp) %in%names(nOverlapsRRCsCOMP[nOverlapsRRCsCOMP==1])]
-nRRCsInCOMP = 0
-
-for(q in unique(queryHits(Overlap.RRCs.Comp))){
-  s=subjectHits(Overlap.RRCs.Comp[queryHits(Overlap.RRCs.Comp)==q])
-  if(min(start(GRanges.cluster[q])) >= min(start(GRanges.PC.1Mb[s])) & max(end(GRanges.cluster[q])) <= max(end(GRanges.PC.1Mb[s]))){
-    
-    nRRCsInCOMP = nRRCsInCOMP + 1
+q = lapply(CompartmentsByChr, function(x){
+  l = vector(mode="numeric")
+  consecutive.Compartment = rle(x$Compartment)
+  for(i in seq_along(consecutive.Compartment$lengths)){
+    l = c(l,rep(i, consecutive.Compartment$lengths[i]))
   }
+  x$group = l
+  d = data.frame(x)
+  d
+})
+
+r = lapply(q, function(x) {
+  
+  start.C = aggregate(start~group,x,min)
+  end.C = aggregate(end~group,x,max)
+  ngenes.C = aggregate(ngenes~group,x,sum)
+  expr.C = aggregate(expr~group,x,mean)
+  DNAse.C = aggregate(DNAse~group,x,mean)
+  PC1.C = aggregate(PC1~group,x,sum)
+  C = aggregate(Compartment~group,x,unique)
+  cbind(unique(x$seqnames),merge(C ,merge(expr.C,merge(DNAse.C,merge(start.C,merge(end.C,merge(ngenes.C,PC1.C, by="group"), by="group"), by="group"), by="group"), by="group"),by="group"))
+  #cbind(unique(x$seqnames),merge(H3K4me1.C,merge(H3K27ac.C,merge(C ,merge(expr.C,merge(DNAse.C,merge(start.C,merge(end.C,merge(ngenes.C,PC1.C, by="group"), by="group"), by="group"), by="group"), by="group"),by="group"), by="group"),by="group"))
+})
+
+a = do.call(rbind, r)
+GRanges.Compartment.agg = GRanges(seqnames=a$`unique(x$seqnames)`, ranges=IRanges(start=a$start,end=a$end), ngenes=a$ngenes, expr=a$expr,DNAse=a$DNAse, PC1=a$PC1, Compartment=a$Compartment)
+
+A = GRanges.Compartment.agg[GRanges.Compartment.agg$Compartment=="A"]
+
+cor(A$ngenes, A$PC1,method = "spearman")
+cor(A$expr, A$PC1, method="spearman")
+cor(A$DNAse, A$PC1, method="spearman")
+
+#Lien entre paires et compartiments
+#On cherche a connaitre si 2 elements inclus dans une paire sont dans des compartiments A (AA), compartiments B (BB) ou un element dans un
+#compartiment A et l'autre dans un compartiment B (AB)
+
+table((countOverlaps(GRanges.Pair.ABC, GRanges.Compartment.agg)))/sum(table((countOverlaps(GRanges.Pair.ABC, GRanges.Compartment.agg))))
+table((countOverlaps(GRanges.Pair.Rao, GRanges.Compartment.agg)))/sum(table((countOverlaps(GRanges.Pair.Rao, GRanges.Compartment.agg))))
+table((countOverlaps(GRanges.Pair.DNAse, GRanges.Compartment.agg)))/sum(table((countOverlaps(GRanges.Pair.DNAse, GRanges.Compartment.agg))))
+
+k = Pairs.with.Compartments(GRanges.Pair.ABC,GRanges.Compartment.agg)
+l = Pairs.with.Compartments(GRanges.Pair.Rao,GRanges.Compartment.agg)
+m = Pairs.with.Compartments(GRanges.Pair.DNAse,GRanges.Compartment.agg)
+w = prop.table(t(rbind(k,l,m)), 2)
+colnames(w) = c("ABC", "Rao", "DNAse")
+
+barplot(w*100,col=c(rgb(0,0,1,0.3), rgb(0.80,0,0.2),rgb(0,1,0,0.3)), xlab="Annotation Type", ylab = "%", xlim=c(0,4.5), main="Repartition of between-compartment contacts for pairs of elements")
+legend("topright", c("AA", "AB","BB"), col=c(rgb(0,0,1,0.3), rgb(0.80,0,0.2),rgb(0,1,0,0.3)), lwd=10)
+
+table((countOverlaps(GRanges.cluster.ABC, GRanges.Compartment.agg)))/sum(table((countOverlaps(GRanges.cluster.ABC, GRanges.Compartment.agg))))
+table((countOverlaps(GRanges.cluster.Rao, GRanges.Compartment.agg)))/sum(table((countOverlaps(GRanges.cluster.Rao, GRanges.Compartment.agg))))
+table((countOverlaps(GRanges.cluster.DNAse, GRanges.Compartment.agg)))/sum(table((countOverlaps(GRanges.cluster.DNAse, GRanges.Compartment.agg))))
+
+kC = Pairs.with.Compartments(GRanges.cluster.ABC,GRanges.Compartment.agg)
+lC = Pairs.with.Compartments(GRanges.cluster.Rao,GRanges.Compartment.agg)
+mC = Pairs.with.Compartments(GRanges.cluster.DNAse,GRanges.Compartment.agg)
+
+wC = prop.table(t(rbind(kC,lC,mC)), 2)
+colnames(wC) = c("ABC", "Rao", "DNAse")
+
+barplot(wC*100,col=c(rgb(0,0,1,0.3), rgb(0.80,0,0.2),rgb(0,1,0,0.3)), xlab="Annotation Type", ylab = "%", xlim=c(0,4.5), main="Repartition of between-compartment contacts for RRCs")
+legend("topright", c("AA", "AB","BB"), col=c(rgb(0,0,1,0.3), rgb(0.80,0,0.2),rgb(0,1,0,0.3)), lwd=10)
+
+GRanges.cluster.ABC$nelements = as.numeric(table(enhancers.promoters$membership))
+GRanges.cluster.DNAse$nelements = as.numeric(table(df.DNAse$compo.DNAse.membership))
+GRanges.cluster.Rao$nelements = as.numeric(table(df.Rao$compo.Rao.membership))
+
+f.ABC = findOverlaps(GRanges.Compartment.agg,GRanges.cluster.ABC)
+f.Rao = findOverlaps(GRanges.Compartment.agg,GRanges.cluster.Rao)
+f.DNAse = findOverlaps(GRanges.Compartment.agg, GRanges.cluster.DNAse)
+  
+keep_singles <- function(v){
+  v[!(v %in% v[duplicated(v)])] 
 }
 
-nRRCsInCOMP/length(Overlap.RRCs.Comp)
+nd.subject.ABC = keep_singles(subjectHits(f.ABC))
+nd.query.ABC = queryHits(f.ABC[subjectHits(f.ABC)%in%nd.subject.ABC])
 
-#Nombre d'elements impliques dans les RRCs inclus dans les compartiments A
-query.Overlap.RRCs.Comp = queryHits(Overlap.RRCs.Comp)
-subject.Overlap.RRCs.Comp = subjectHits(Overlap.RRCs.Comp)
+query.Comp.RRCs.ABC = GRanges.cluster.ABC[nd.subject.ABC]
 
-list.RRCs.Comp = list()
+nd.subject.Rao = keep_singles(subjectHits(f.Rao))
+nd.query.Rao = queryHits(f.Rao[subjectHits(f.Rao)%in%nd.subject.Rao])
 
-for(q in unique(query.Overlap.RRCs.Comp)){
-  genes.enhancers.tmp = enhancers.promoters[enhancers.promoters$compo.graph.membership==q,c("chr.x","name","start","end","TargetGene", "startProm", "endProm")]
-  
-  GRanges.prom = GRanges(seqnames=genes.enhancers.tmp$chr, ranges=IRanges(start=genes.enhancers.tmp$startProm,end=genes.enhancers.tmp$endProm,names=genes.enhancers.tmp$TargetGene))
-  GRanges.enh = GRanges(seqnames=genes.enhancers.tmp$chr, ranges=IRanges(start=genes.enhancers.tmp$start,end=genes.enhancers.tmp$end,names=genes.enhancers.tmp$name))
-  
-  subset.subjects = subjectHits(Overlap.RRCs.Comp[queryHits(Overlap.RRCs.Comp) == q])
-  
-  GRanges.subset = GRanges.PC.1Mb[subset.subjects]
-  
-  GRanges.subset$npromRRCsOverlap = countOverlaps(GRanges.subset,unique(GRanges.prom))
-  GRanges.subset$nenhancersRRCsOverlap = countOverlaps(GRanges.subset,unique(GRanges.enh))
-  
-  list.RRCs.Comp[[q]] = GRanges.subset
-}
- 
-proportion.prom.A = lapply(list.RRCs.Comp, function(x){
-  if(length(x[x$Compartiment=="A"])>0) {
-    sum(x[x$Compartiment=="A"]$npromRRCsOverlap)/ sum(x$npromRRCsOverlap)}
-  }
-)
+query.Comp.RRCs.Rao = GRanges.cluster.Rao[nd.subject.Rao]
 
-proportion.enhancers.A = lapply(list.RRCs.Comp, function(x){
-  if(length(x[x$Compartiment=="A"])>0) {
-    sum(x[x$Compartiment=="A"]$nenhancersRRCsOverlap)/ sum(x$nenhancersRRCsOverlap)}
-}
-)
+nd.subject.DNAse = keep_singles(subjectHits(f.DNAse))
+nd.query.DNAse = queryHits(f.DNAse[subjectHits(f.DNAse)%in%nd.subject.DNAse])
 
-#Lorsque la moyenne est utilisee
-# 0.8859238
-# 0.8642006
+query.Comp.RRCs.DNAse = GRanges.cluster.DNAse[nd.subject.DNAse]
 
-#Utilisation de la mediane
-mean(unlist(proportion.prom.A))
-#0.9374591
-mean(unlist(proportion.enhancers.A))
-#0.9163816
 
-export(Pairs(GRanges.PC.1Mb[GRanges.PC.1Mb$Compartiment=="A"],GRanges.PC.1Mb[GRanges.PC.1Mb$Compartiment=="A"]), "compartiments_1Mb.bedpe", format = "bedpe")
+mcols(GRanges.Compartment.agg)[unique(nd.query.ABC), "mean_nelements_ABC"] = aggregate(query.Comp.RRCs.ABC$nelements, list(nd.query.ABC), mean, na.rm=T)$x
+mcols(GRanges.Compartment.agg)[unique(nd.query.Rao), "mean_nelements.Rao"] = aggregate(query.Comp.RRCs.Rao$nelements, list(nd.query.Rao), mean, na.rm=T)$x
+mcols(GRanges.Compartment.agg)[unique(nd.query.DNAse), "mean_nelements_DNAse"] = aggregate(query.Comp.RRCs.DNAse$nelements, list(nd.query.DNAse), mean, na.rm=T)$x
+
+mean(mcols(GRanges.Compartment.agg)[GRanges.Compartment.agg$Compartment=="A","mean_nelements_ABC"], na.rm=T)
+mean(mcols(GRanges.Compartment.agg)[GRanges.Compartment.agg$Compartment=="B","mean_nelements_ABC"], na.rm=T)
+
+mean(mcols(GRanges.Compartment.agg)[GRanges.Compartment.agg$Compartment=="A","mean_nelements.Rao"], na.rm=T)
+mean(mcols(GRanges.Compartment.agg)[GRanges.Compartment.agg$Compartment=="B","mean_nelements.Rao"], na.rm=T)
+
+mean(mcols(GRanges.Compartment.agg)[GRanges.Compartment.agg$Compartment=="A","mean_nelements_DNAse"], na.rm=T)
+mean(mcols(GRanges.Compartment.agg)[GRanges.Compartment.agg$Compartment=="B","mean_nelements_DNAse"], na.rm=T)
+
+RRCs.Compartments.Complexity = data.frame(mcols(GRanges.Compartment.agg))
+my_comparisons=list(c("A","B")) 
+
+graph.A = ggviolin(RRCs.Compartments.Complexity, x="Compartment", y="mean_nelements_ABC", fill="Compartment",ylab="mean Elements",palette = c("#00AFBB", "#E7B800"),add = "boxplot", add.params = list(fill = "white"))+
+           stat_compare_means(comparisons = my_comparisons, label = "p.signif") + stat_compare_means(label.y = 100, label.x=1.35) 
+graph.B = ggviolin(RRCs.Compartments.Complexity, x="Compartment", y="mean_nelements.Rao", fill="Compartment",ylab="mean Elements",palette = c("#00AFBB", "#E7B800"),add = "boxplot", add.params = list(fill = "white"))+
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif") + stat_compare_means(label.y = 20, label.x=1.35)
+graph.C = ggviolin(RRCs.Compartments.Complexity, x="Compartment", y="mean_nelements_DNAse", fill="Compartment",ylab="mean Elements",palette = c("#00AFBB", "#E7B800"),add = "boxplot", add.params = list(fill = "white"))+
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif") + stat_compare_means(label.y = 25, label.x=1.35) 
+
+ggarrange(graph.A, graph.B, graph.C, 
+          labels = c("ABC", "Rao", "Rao+DNAse"),
+          ncol = 2, nrow = 2)
 
 ###############################################################################################
 ##################################RRCs & FIREs#################################################
 ###############################################################################################
-FIREs = read.table("FIREs/allchrs_FIREs.matrix", header=T)
-FIREs.WX = FIREs[FIREs$chr!="chrX",]
 
-all.FIREs = read.table("FIREs/allchrs_complete_processed.matrix", header=T)
-all.FIREs.WX = all.FIREs[all.FIREs$chr!="chrX",]
+FIREs = read.table("/home/loic/Documents/HiC/code/FIREs/FIREs_NEU.txt", header=T)
+superFIREs = read.table("/home/loic/Documents/HiC/code/FIREs/NEU_SuperFIREs.txt", header=T)
+FIREs.signi = FIREs[FIREs$NEU_indicator==1,]
 
-GRanges.FIREs = GRanges(seqnames = FIREs.WX$chr, ranges = IRanges(FIREs.WX$start, FIREs.WX$stop), ScoreFire = FIREs.WX$ScoreFire)
-GRanges.allFIREs = GRanges(seqname = all.FIREs.WX$chr, ranges =IRanges(all.FIREs.WX$start, all.FIREs.WX$stop), pvalues=all.FIREs.WX$pvalues)
-
-Overlaps.Enhancers.FIREs = findOverlaps(unique.Enhancers.RRCs, GRanges.FIREs)
-Overlaps.Promoters.FIREs = findOverlaps(unique.Promoters.RRCs, GRanges.FIREs)
-
-mcols(unique.Enhancers.RRCs)["ScoreFire"] = aggregate(GRanges.FIREs, Overlaps.Enhancers.FIREs, ScoreFire=mean(ScoreFire))$ScoreFire
-mcols(unique.Promoters.RRCs)["ScoreFire"] = aggregate(GRanges.FIREs, Overlaps.Promoters.FIREs, ScoreFire=mean(ScoreFire))$ScoreFire
+GRanges.FIREs = GRanges(seqnames = FIREs$chr, ranges=IRanges(start=FIREs$start, end=FIREs$end, names = paste0("FIRE",1:nrow(FIREs))),ScoreFire=FIREs$NEU_neg_ln_pval)
+GRanges.FIREs.signi = GRanges(seqnames = FIREs.signi$chr, ranges=IRanges(start=FIREs.signi$start, end=FIREs.signi$end, names = paste0("FIRE",1:nrow(FIREs.signi))), x =FIREs.signi$NEU_neg_ln_pval)
+GRanges.superFIREs = GRanges(seqnames = superFIREs$chr, ranges=IRanges(start=superFIREs$start, end=superFIREs$end, names = paste0("superFIRE",1:nrow(superFIREs))))
 
 
-summary(FIREs.WX$ScoreFire)
-#Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
-#0.00287  0.44767  1.53162  1.14550  1.71861 76.60118
+unique.Enhancers.RRCs = annotate.3D.Features(GRanges.FIREs, unique.Enhancers.RRCs, kind="FIRE", aggregateFunction = "mean")
+unique.Promoters.RRCs = annotate.3D.Features(GRanges.FIREs, unique.Promoters.RRCs, kind="FIRE", aggregateFunction = "mean")
 
-summary(mcols(unique.Enhancers.RRCs)$ScoreFire)
-# Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-#0.01071 0.49048 1.63214 1.33534 1.80037 5.26158
+distanceRRCs.ABC.FIREs = mcols(distanceToNearest(unique.Enhancers.RRCs,GRanges.FIREs.signi))$distance
+distanceRRCs.Rao.FIREs = mcols(distanceToNearest(second(Pairs.prom.regulatory.Rao),GRanges.FIREs.signi))$distance
+distanceRRCs.DNAse.FIREs = mcols(distanceToNearest(first(Pairs.prom.regulatory.DNAse),GRanges.FIREs.signi))$distance
 
-summary(mcols(unique.Promoters.RRCs)$ScoreFire)
-# Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-#0.01587 0.56306 1.65644 1.43711 1.80713 5.26158 
+boxplot(distanceRRCs.ABC.FIREs[distanceRRCs.ABC.FIREs<1000000],distanceRRCs.Rao.FIREs[distanceRRCs.Rao.FIREs<1000000],distanceRRCs.DNAse.FIREs[distanceRRCs.DNAse.FIREs<1000000])
+boxplot(distanceRRCs.Rao.FIREs)
+boxplot(distanceRRCs.DNAse.FIREs)
 
+wilcox.test(distanceRRCs.ABC.FIREs,distanceRRCs.Rao.FIREs)
+wilcox.test(distanceRRCs.ABC.FIREs,distanceRRCs.DNAse.FIREs)
+wilcox.test(distanceRRCs.Rao.FIREs,distanceRRCs.DNAse.FIREs)
 
-OEnhFIREs = table(countOverlaps(unique.Enhancers.RRCs, GRanges.FIREs))
-OEnhFIREs/sum(OEnhFIREs)
-
-OPromFIREs = table(countOverlaps(unique.Promoters.RRCs, GRanges.FIREs))
-OPromFIREs/sum(OPromFIREs)
-                                       
-export(Pairs(GRanges.FIREs, GRanges.FIREs), "FIREs.bedpe", format="bedpe")
-
-#Les enhancers sont-ils enrichis en FIREs?
-GRanges.enhancers$FIREs.nsigni = countOverlaps(GRanges.enhancers, GRanges.allFIREs[GRanges.allFIREs$pvalues>0.05])
-GRanges.enhancers$FIREs.signi = countOverlaps(GRanges.enhancers, GRanges.allFIREs[GRanges.allFIREs$pvalues<=0.05])
-
-GRanges.enhancers.nRRCs$FIREs.nsigni = countOverlaps(GRanges.enhancers.nRRCs, GRanges.allFIREs[GRanges.allFIREs$pvalues>0.05])
-GRanges.enhancers.nRRCs$FIREs.signi = countOverlaps(GRanges.enhancers.nRRCs, GRanges.allFIREs[GRanges.allFIREs$pvalues<=0.05])
-
-table(GRanges.enhancers.nRRCs$FIREs.signi)
-enrichissement.FIREs = matrix(c(sum(GRanges.enhancers$FIREs.signi), sum(GRanges.enhancers.nRRCs$FIREs.signi), sum(GRanges.enhancers$FIREs.nsigni), sum(GRanges.enhancers.nRRCs$FIREs.nsigni)), 
-                              ncol=2, nrow=2, byrow=T)
-
-#H0: Le fait d'etre FIRE est independant du fait d'etre integre dans les RRCs ou non (RC =1)
-#H1: On observe plus de FIREs dans les elements inclus dans les RRCs versus les elements non inclus (RC > 1)
-fisher.test(enrichissement.FIREs, alternative = "greater")
-
-#Les enhancers intergeniques sont-ils plus enrichis que les enhancers geniques?
-enrichissement.geniqueVSintergenique = matrix(c(sum(GRanges.enhancers[GRanges.enhancers$typeOf=="intergenic"]$FIREs.signi), sum(GRanges.enhancers[GRanges.enhancers$typeOf=="genic"]$FIREs.signi), sum(GRanges.enhancers[GRanges.enhancers$typeOf=="intergenic"]$FIREs.nsigni), sum(GRanges.enhancers[GRanges.enhancers$typeOf=="genic"]$FIREs.nsigni)), 
-                              ncol=2, nrow=2, byrow=T)
-
-(enrichissement.geniqueVSintergenique[1,1] * enrichissement.geniqueVSintergenique[2,2]) / (enrichissement.geniqueVSintergenique[1,2] * enrichissement.geniqueVSintergenique[2,1])
-#1.14471
-
-fisher.test(enrichissement.geniqueVSintergenique, alternative = "greater")
-#L'enrichissement global des enhancers presents dans les RRCs ne semble pas venir du fait que les enhancers soient presents dans le corps du gene
+table(countOverlaps(unique.Enhancers.RRCs, GRanges.FIREs.signi))/sum(table(countOverlaps(unique.Enhancers.RRCs, GRanges.FIREs.signi)))
+table(countOverlaps(second(Pairs.prom.regulatory.Rao), GRanges.FIREs.signi))/sum(table(countOverlaps(second(Pairs.prom.regulatory.Rao), GRanges.FIREs.signi)))
+table(countOverlaps(first(Pairs.prom.regulatory.DNAse), GRanges.FIREs.signi))/sum(table(countOverlaps(first(Pairs.prom.regulatory.DNAse), GRanges.FIREs.signi)))
 
 ###############################################################################################
 #################################RRCs et DI####################################################
@@ -800,30 +328,20 @@ DI$chr = paste0("chr", DI$chr)
 DI.WX = DI[DI$chr!="chr23",]
 GRanges.DI = GRanges(seqnames = DI.WX$chr, ranges=IRanges(start=DI.WX$start, end=DI.WX$end), DI= DI.WX$DI)
 
+unique.Enhancers.RRCs = annotate.3D.Features(GRanges.DI, unique.Enhancers.RRCs, kind = "DI", aggregateFunction = "mean")
+unique.Promoters.RRCs = annotate.3D.Features(GRanges.DI, unique.Promoters.RRCs, kind = "DI", aggregateFunction = "mean")
+
+summary(unique.Enhancers.RRCs$mean_DI)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#0.000    6.079   28.400   66.335   85.013 1483.344 
+
+summary(unique.Promoters.RRCs$mean_DI)
+#Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#0.000   5.205  21.757  51.480  63.595 970.881 
+
+
 table(countOverlaps(unique.Enhancers.RRCs, GRanges.DI)) / sum(table(countOverlaps(unique.Enhancers.RRCs, GRanges.DI)))
 table(countOverlaps(unique.Promoters.RRCs, GRanges.DI)) / sum(table(countOverlaps(unique.Promoters.RRCs, GRanges.DI)))
-
-
-OEnhDI = findOverlaps(unique.Enhancers.RRCs, GRanges.DI)
-OPromDI = findOverlaps(unique.Promoters.RRCs, GRanges.DI)
-
-mcols(unique.Enhancers.RRCs)["DI"] = aggregate(GRanges.DI, OEnhDI, DI = mean(DI))$DI
-
-summary(unique.Enhancers.RRCs$DI)
-#Min.    1st Qu.     Median       Mean    3rd Qu.       Max. 
-#-1483.3440   -29.3256     0.0001    -1.6459    27.5029  1355.6690 
-
-mcols(unique.Promoters.RRCs)["DI"] = aggregate(GRanges.DI, OPromDI, DI = mean(DI))$DI
-
-summary(unique.Promoters.RRCs$DI)
-#  Min.   1st Qu.    Median      Mean   3rd Qu.      Max. 
-#-932.4027  -21.5652    0.0109   -0.6515   21.8448  970.8814 
-
-hist(unique.Enhancers.RRCs$DI)
-hist(unique.Promoters.RRCs$DI)
-
-t.test(unique.Enhancers.RRCs$DI, unique.Promoters.RRCs$DI)
-#Les promoters et les enhancers n'ont pas un profil different en termes de DI
 
 ######################################################################################
 #########################RRCs et INS##################################################
@@ -843,110 +361,1812 @@ INS.WX = INS[INS$chr!="chrX",]
 
 GRanges.INS = GRanges(seqnames =  INS.WX$chr, ranges = IRanges(start = INS.WX$start, end = INS.WX$end), normalizedScore = INS.WX$normalizedScore)
 
-OEnhINS = findOverlaps(unique.Enhancers.RRCs, GRanges.INS)
-OPromINS = findOverlaps(unique.Promoters.RRCs, GRanges.INS)
+unique.Enhancers.RRCs = annotate.3D.Features(GRanges.INS, unique.Enhancers.RRCs, kind = "INS", aggregateFunction = "mean")
+unique.Promoters.RRCs = annotate.3D.Features(GRanges.INS, unique.Promoters.RRCs, kind = "INS", aggregateFunction = "mean")
 
-mcols(unique.Enhancers.RRCs)["normalizedScore"] = aggregate(GRanges.INS,OEnhINS, normalizedScore=mean(normalizedScore))$normalizedScore
-mcols(unique.Promoters.RRCs)["normalizedScore"] = aggregate(GRanges.INS,OPromINS, normalizedScore=mean(normalizedScore))$normalizedScore
+summary(unique.Enhancers.RRCs$mean_INS)
+# Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+#0.4440  0.7767  0.8092  0.8051  0.8383  0.9437     334 
 
-summary(unique.Enhancers.RRCs$normalizedScore)
-#Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-#0.4440  0.7767  0.8093  0.8051  0.8384  0.9437
-
-summary(unique.Promoters.RRCs$normalizedScore)
-#Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-#0.5174  0.7668  0.7998  0.7958  0.8292  0.9397
-
-hist(unique.Enhancers.RRCs$normalizedScore)
-hist(unique.Promoters.RRCs$normalizedScore)
-
-t.test(unique.Enhancers.RRCs$normalizedScore, unique.Promoters.RRCs$normalizedScore)
-#Diffence entre enhancers et promoters au regard de l'INS
+summary(unique.Promoters.RRCs$mean_INS)
+# Min. 1st Qu.  Median    Mean 3rd Qu.    Max.    NA's 
+#0.5174  0.7668  0.7998  0.7957  0.8291  0.9397     181 
 
 #Lien caracteristiques 3D et RRCs:
+#Premier niveau d'analyse: Elements inclus dans les RRCs (e.g Enhancers et Promoters)
+#Profil de chevauchement:
+table(countOverlaps(unique.Enhancers.RRCs, GRanges.INS))
+table(countOverlaps(unique.Promoters.RRCs, GRanges.INS))
+
+table(countOverlaps(unique.Enhancers.RRCs, GRanges.DI))
+table(countOverlaps(unique.Promoters.RRCs, GRanges.DI))
+
+table(countOverlaps(unique.Enhancers.RRCs, GRanges.FIREs))
+table(countOverlaps(unique.Promoters.RRCs, GRanges.FIREs))
+
+#Correlation entre l'activite de la DNAse/H3k27ac/CTCF et les caracteristiques 3D:
+###############################################################################################################
+
+unique.Enhancers.RRCs = annotate.Activity(CTCFActivity.NEU, unique.Enhancers.RRCs, kind = "CTCF")
+unique.Enhancers.RRCs = annotate.Activity(DNAseActivity.NEU, unique.Enhancers.RRCs, kind="DNAse")
+unique.Enhancers.RRCs = annotate.Activity(H3K27acActivity.NEU, unique.Enhancers.RRCs, kind="H3K27ac")
+unique.Enhancers.RRCs = annotate.Activity(H3K4me1Activity.NEU, unique.Enhancers.RRCs, kind="H3K4me1")
+unique.Enhancers.RRCs =  annotate.Activity(H3K4me3Activity.NEU, unique.Enhancers.RRCs, kind="H3K4me3")
+unique.Enhancers.RRCs = annotate.Activity(p300Activity.NEU, unique.Enhancers.RRCs, kind="p300")
+
+FeaturesPlusActivity.Enhancers = data.frame(mcols(unique.Enhancers.RRCs))
+
+unique.Promoters.RRCs = annotate.Activity(CTCFActivity.NEU, unique.Promoters.RRCs, kind = "CTCF")
+unique.Promoters.RRCs = annotate.Activity(DNAseActivity.NEU, unique.Promoters.RRCs, kind="DNAse")
+unique.Promoters.RRCs = annotate.Activity(H3K27acActivity.NEU, unique.Promoters.RRCs, kind="H3K27ac")
+unique.Promoters.RRCs = annotate.Activity(H3K4me1Activity.NEU, unique.Promoters.RRCs, kind="H3K4me1")
+unique.Promoters.RRCs =  annotate.Activity(H3K4me3Activity.NEU, unique.Promoters.RRCs, kind="H3K4me3")
+unique.Promoters.RRCs = annotate.Activity(p300Activity.NEU, unique.Promoters.RRCs, kind="p300")
+
+FeaturesPlusActivity.Promoters = data.frame(mcols(unique.Promoters.RRCs))
+FeaturesPlusActivity.Promoters.tmp = FeaturesPlusActivity.Promoters
+
+FeaturesPlusActivity.Promoters.tmp$geneSymbol = rownames(FeaturesPlusActivity.Promoters.tmp)
+FeaturesPlusActivity.Promoters.tmp = merge(FeaturesPlusActivity.Promoters.tmp, expression.NEU[,c("geneSymbol","median.Expr")], by="geneSymbol")
+FeaturesPlusActivity.Promoters.tmp$geneSymbol = NULL
+
+
+relevantCols.Cor.Regul.ABC = FeaturesPlusActivity.Enhancers[,-1]
+colnames(relevantCols.Cor.Regul.ABC) = c("Score_FIRE", "DI", "INS", "CTCF", "DNAse", "H3K27ac", "H3K4me1", "H3K4me3","p300", "H3K27me3")
+relevantCols.Cor.Prom.ABC = FeaturesPlusActivity.Promoters.tmp[,-1]
+colnames(relevantCols.Cor.Prom.ABC) = c("Score_FIRE", "DI", "INS", "CTCF", "DNAse", "H3K27ac", "H3K4me1", "H3K4me3","p300", "H3K27me3", "Expression")
+
+PerformanceAnalytics::chart.Correlation(relevantCols.Cor.Regul.ABC)
+PerformanceAnalytics::chart.Correlation(relevantCols.Cor.Prom.ABC)
+
+
+
+FeaturesPlusActivity.Promoters.Rao.tmp = prom.Rao[,-1]
+
+FeaturesPlusActivity.Promoters.Rao.tmp = merge(FeaturesPlusActivity.Promoters.Rao.tmp, expression.NEU[,c("geneSymbol","median.Expr")], by="geneSymbol")
+FeaturesPlusActivity.Promoters.Rao.tmp$geneSymbol = NULL
+
+relevantCols.Cor.Regul.Rao = regul.Rao[,-c(1,2)]
+colnames(relevantCols.Cor.Regul.Rao) = c("DI","Score_FIRE" , "INS", "CTCF", "H3K27ac","DNAse", "H3K4me1", "H3K4me3","p300", "H3K27me3")
+colnames(FeaturesPlusActivity.Promoters.Rao.tmp) = c("DI","Score_FIRE" , "INS", "CTCF", "H3K27ac","DNAse", "H3K4me1", "H3K4me3","p300", "H3K27me3", "Expression")
+
+
+PerformanceAnalytics::chart.Correlation(relevantCols.Cor.Regul.Rao[,c("Score_FIRE","DI","INS", "CTCF", "H3K27ac", "DNAse", "H3K4me1", "H3K4me3", "p300","H3K27me3")])
+PerformanceAnalytics::chart.Correlation(FeaturesPlusActivity.Promoters.Rao.tmp[,c("Score_FIRE","DI","INS", "CTCF", "H3K27ac", "DNAse", "H3K4me1", "H3K4me3", "p300","H3K27me3","Expression")])
+
+FeaturesPlusActivity.Promoters.DNAse.tmp = prom.DNAse[,-1]
+
+FeaturesPlusActivity.Promoters.DNAse.tmp = merge(FeaturesPlusActivity.Promoters.DNAse.tmp, expression.NEU[,c("geneSymbol","median.Expr")], by="geneSymbol")
+FeaturesPlusActivity.Promoters.DNAse.tmp$geneSymbol = NULL
+
+relevantCols.Cor.Regul.DNAse = regul.DNAse[,-c(1,2)]
+colnames(relevantCols.Cor.Regul.DNAse) = c("DI","Score_FIRE" , "INS", "CTCF", "H3K27ac","DNAse", "H3K4me1", "H3K4me3","p300", "H3K27me3")
+colnames(FeaturesPlusActivity.Promoters.DNAse.tmp) = c("DI","Score_FIRE" , "INS", "CTCF", "H3K27ac","DNAse", "H3K4me1", "H3K4me3","p300", "H3K27me3", "Expression")
+
+
+PerformanceAnalytics::chart.Correlation(relevantCols.Cor.Regul.DNAse[,c("Score_FIRE","DI","INS", "CTCF", "H3K27ac", "DNAse", "H3K4me1", "H3K4me3", "p300","H3K27me3")])
+PerformanceAnalytics::chart.Correlation(FeaturesPlusActivity.Promoters.DNAse.tmp[,c("Score_FIRE","DI","INS", "CTCF", "H3K27ac", "DNAse", "H3K4me1", "H3K4me3", "p300","H3K27me3","Expression")])
+
+#Correlation au niveau des RRCs:
+
+#Ici on considere la relation entre les caracteristiques 3D pour les elements inclus dans les RRCs
+Enhancers.3D = unique.Enhancers.RRCs[!is.na(mcols(unique.Enhancers.RRCs)$mean_ScoreFire)&!is.na(mcols(unique.Enhancers.RRCs)$mean_normalizedScore)&!is.na(mcols(unique.Enhancers.RRCs)$mean_DI)]
+Promoters.3D = unique.Promoters.RRCs[!is.na(mcols(unique.Promoters.RRCs)$mean_ScoreFire)&!is.na(mcols(unique.Promoters.RRCs)$mean_normalizedScore)&!is.na(mcols(unique.Promoters.RRCs)$mean_DI)]
 
 df.Promoters.RRCs = data.frame(unique.Promoters.RRCs)
-df.Promoters.RRCs = df.Promoters.RRCs[c("seqnames", "start", "end", "normalizedScore", "DI", "ScoreFire")]
-colnames(df.Promoters.RRCs) = c("chr.x", "startProm", "endProm","normalizedScore.PROM", "DI.PROM", "ScoreFire.PROM")
+df.Promoters.RRCs = df.Promoters.RRCs[,c("seqnames", "start", "end","ABC.Score" ,"mean_INS", "mean_DI", "mean_ScoreFire", "mean_CTCF", "mean_DNAse","mean_H3K27ac", "mean_H3K4me1", "mean_p300", "mean_H3K4me3")]
+colnames(df.Promoters.RRCs) = c("chr.x", "startProm", "endProm","ABC.Score.PROM","INS.PROM", "DI.PROM", "ScoreFire.PROM","mean_CTCF_PROM", "mean_DNAse_PROM","mean_H3K27ac_PROM", "mean_H3K4me1_PROM", "mean_p300_PROM", "mean_H3K4me3_PROM")
 
 
 df.Enhancers.RRCs = data.frame(unique.Enhancers.RRCs)
-df.Enhancers.RRCs = df.Enhancers.RRCs[c("seqnames", "start", "end", "normalizedScore", "DI", "ScoreFire")]
-colnames(df.Enhancers.RRCs) = c("chr.x", "start", "end","normalizedScore.Enh", "DI.Enh", "ScoreFire.Enh")
+df.Enhancers.RRCs = df.Enhancers.RRCs[,c("seqnames", "start", "end", "ABC.Score","mean_INS", "mean_DI", "mean_ScoreFire","mean_CTCF", "mean_DNAse","mean_H3K27ac", "mean_H3K4me1", "mean_p300","mean_H3K4me3")]
+colnames(df.Enhancers.RRCs) = c("chr.x", "start", "end","ABC.Score.ENH","INS.ENH", "DI.ENH", "ScoreFire.ENH","mean_CTCF_ENH", "mean_DNAse_ENH","mean_H3K27ac_ENH", "mean_H3K4me1_ENH", "mean_p300_ENH","mean_H3K4me3_ENH")
 
 
 enhancers.promoters = merge(enhancers.promoters, df.Promoters.RRCs, by=c("chr.x", "startProm", "endProm"))
-enhancers.promoters =merge(enhancers.promoters, df.Enhancers.RRCs, by=c("chr.x", "start", "end"))
+enhancers.promoters = merge(enhancers.promoters, df.Enhancers.RRCs, by=c("chr.x", "start", "end"))
 
-head(enhancers.promoters)
-
-meanRRCs.ScoreABC = aggregate(ABC.Score~compo.graph.membership, enhancers.promoters, mean)
+meanRRCs.ScoreABC = aggregate(ABC.Score~membership, enhancers.promoters, mean, na.rm=T)
 
 #INS
-meanRRCsPROM.INS = aggregate(normalizedScore.PROM~compo.graph.membership, enhancers.promoters, mean)
-meanRRCsEnh.INS = aggregate(normalizedScore.Enh~compo.graph.membership, enhancers.promoters, mean)
+meanRRCsPROM.INS = aggregate(INS.PROM~membership, enhancers.promoters, mean, na.rm=T)
+meanRRCsEnh.INS = aggregate(INS.ENH~membership, enhancers.promoters, mean, na.rm=T)
 
-meanRRCs.INS = merge(meanRRCsEnh.INS, meanRRCsPROM.INS)
-cor(meanRRCs.INS$normalizedScore.Enh, meanRRCs.INS$normalizedScore.PROM)
+meanRRCs.INS = merge(meanRRCsPROM.INS,meanRRCsEnh.INS)
+cor(meanRRCs.INS$INS.PROM, meanRRCs.INS$INS.ENH)
+#[1] 0.9170433
 
-meanRRCs.INS$meanINS = apply(meanRRCs.INS[,c("normalizedScore.Enh","normalizedScore.PROM")], 1, mean)
+meanRRCs.INS$meanINS = apply(meanRRCs.INS[,c("INS.ENH","INS.PROM")], 1, mean, na.rm=T)
 
 #DI
-meanRRCsPROM.DI = aggregate(DI.PROM~compo.graph.membership, enhancers.promoters, mean)
-meanRRCsEnh.DI = aggregate(DI.Enh~compo.graph.membership, enhancers.promoters, mean)
+meanRRCsPROM.DI = aggregate(DI.PROM~membership, enhancers.promoters, mean, na.rm=T)
+meanRRCsEnh.DI = aggregate(DI.ENH~membership, enhancers.promoters, mean, na.rm=T)
 
 meanRRCs.DI = merge(meanRRCsEnh.DI, meanRRCsPROM.DI)
-cor(meanRRCs.DI$DI.Enh, meanRRCs.DI$DI.PROM)
 
-meanRRCs.DI$meanDI = apply(meanRRCs.DI[,c("DI.Enh","DI.PROM")], 1, mean)
+cor(meanRRCs.DI$DI.ENH, meanRRCs.DI$DI.PROM)
+#0.7446607
+
+meanRRCs.DI$meanDI = apply(meanRRCs.DI[,c("DI.ENH","DI.PROM")], 1, mean, na.rm=T)
 
 #Score-FIRE
-meanRRCsPROM.FIRE = aggregate(ScoreFire.PROM~compo.graph.membership, enhancers.promoters, mean)
-meanRRCsEnh.FIRE = aggregate(ScoreFire.Enh~compo.graph.membership, enhancers.promoters, mean)
+meanRRCsPROM.FIRE = aggregate(ScoreFire.PROM~membership, enhancers.promoters, mean, na.rm=T)
+meanRRCsEnh.FIRE = aggregate(ScoreFire.ENH~membership, enhancers.promoters, mean, na.rm=T)
 
 meanRRCs.FIRE = merge(meanRRCsEnh.FIRE, meanRRCsPROM.FIRE)
-cor(meanRRCs.FIRE$ScoreFire.Enh, meanRRCs.FIRE$ScoreFire.PROM)
 
-meanRRCs.FIRE$meanFIRE = apply(meanRRCs.FIRE[,c("ScoreFire.Enh","ScoreFire.PROM")], 1, mean)
+cor(meanRRCs.FIRE$ScoreFire.ENH, meanRRCs.FIRE$ScoreFire.PROM)
+#0.699876
+
+meanRRCs.FIRE$meanFIRE = apply(meanRRCs.FIRE[,c("ScoreFire.ENH","ScoreFire.PROM")], 1, mean, na.rm=T)
+
+#DNAse
+meanRRCsPROM.DNAse = aggregate(mean_DNAse_PROM~membership, enhancers.promoters, mean, na.rm=T)
+meanRRCsEnh.DNAse = aggregate(mean_DNAse_ENH~membership, enhancers.promoters, mean, na.rm=T)
+
+meanRRCs.DNAse = merge(meanRRCsEnh.DNAse, meanRRCsPROM.DNAse)
+
+cor(meanRRCs.DNAse$mean_DNAse_ENH, meanRRCs.DNAse$mean_DNAse_PROM)
+#0.1562011
+
+meanRRCs.DNAse$meanDNAse = apply(meanRRCs.DNAse[,c("mean_DNAse_ENH","mean_DNAse_PROM")], 1, mean, na.rm=T)
+
+#CTCF
+meanRRCsPROM.CTCF = aggregate(mean_CTCF_PROM~membership, enhancers.promoters, mean, na.rm=T)
+meanRRCsEnh.CTCF = aggregate(mean_CTCF_ENH~membership, enhancers.promoters, mean, na.rm=T)
+
+meanRRCs.CTCF = merge(meanRRCsPROM.CTCF, meanRRCsEnh.CTCF)
+
+cor(meanRRCs.CTCF$mean_CTCF_PROM,meanRRCs.CTCF$mean_CTCF_ENH)
+#0.0932113
+
+meanRRCs.CTCF$meanCTCF = apply(meanRRCs.CTCF[,c("mean_CTCF_PROM","mean_CTCF_ENH")], 1, mean, na.rm=T)
+
+#H3K27ac
+meanRRCsPROM.H3K27ac = aggregate(mean_H3K27ac_PROM~membership, enhancers.promoters, mean, na.rm=T)
+meanRRCsEnh.H3K27ac = aggregate(mean_H3K27ac_ENH~membership, enhancers.promoters, mean, na.rm=T)
+
+meanRRCs.H3K27ac = merge(meanRRCsPROM.H3K27ac, meanRRCsEnh.H3K27ac)
+
+cor(meanRRCs.H3K27ac$mean_H3K27ac_PROM,meanRRCs.H3K27ac$mean_H3K27ac_ENH)
+#0.1453321
+
+meanRRCs.H3K27ac$meanH3K27ac= apply(meanRRCs.H3K27ac[,c("mean_H3K27ac_PROM","mean_H3K27ac_ENH")], 1, mean, na.rm=T)
+
+#H3K27me3
+meanRRCsPROM.H3K27me3 = aggregate(mean_H3K27me3_PROM~membership, enhancers.promoters, mean, na.rm=T)
+meanRRCsEnh.H3K27me3 = aggregate(mean_H3K27me3_ENH~membership, enhancers.promoters, mean, na.rm=T)
+
+meanRRCs.H3K27me3 = merge(meanRRCsPROM.H3K27me3, meanRRCsEnh.H3K27me3)
+
+cor(meanRRCs.H3K27me3$mean_H3K27me3_PROM,meanRRCs.H3K27me3$mean_H3K27me3_ENH)
+#0.31
+
+meanRRCs.H3K27me3$meanH3K27me3= apply(meanRRCs.H3K27me3[,c("mean_H3K27me3_PROM","mean_H3K27me3_ENH")], 1, mean, na.rm=T)
 
 
-ThreeD.RRCs = merge(meanRRCs.FIRE[,c("compo.graph.membership","meanFIRE")],merge(meanRRCs.DI[,c("compo.graph.membership","meanDI")], meanRRCs.INS[,c("compo.graph.membership","meanINS")], by="compo.graph.membership"), by="compo.graph.membership")
+#H3K4me1
+meanRRCsPROM.H3K4me1 = aggregate(mean_H3K4me1_PROM~membership, enhancers.promoters, mean, na.rm=T)
+meanRRCsEnh.H3K4me1 = aggregate(mean_H3K4me1_ENH~membership, enhancers.promoters, mean, na.rm=T)
 
-Full.3D.RRCs = merge(ThreeD.RRCs, meanRRCs.ScoreABC, by="compo.graph.membership" )
+meanRRCs.H3K4me1 = merge(meanRRCsPROM.H3K4me1, meanRRCsEnh.H3K4me1)
 
-nByRRCs = lapply(unique(enhancers.promoters$compo.graph.membership), function(x) length(unique(enhancers.promoters[enhancers.promoters$compo.graph.membership==x,"TargetGene"])) + length(unique(enhancers.promoters[enhancers.promoters$compo.graph.membership==x,"name"])))
+cor(meanRRCs.H3K4me1$mean_H3K4me1_PROM,meanRRCs.H3K4me1$mean_H3K4me1_ENH)
+#1] 0.1782799
 
-df.nByRRCs = data.frame(matrix(c(1:length(nByRRCs), unlist(nByRRCs)), ncol=2))
-colnames(df.nByRRCs) = c("compo.graph.membership", "nElements")
+meanRRCs.H3K4me1$meanH3K4me1= apply(meanRRCs.H3K4me1[,c("mean_H3K4me1_PROM","mean_H3K4me1_ENH")], 1, mean, na.rm=T)
 
-Full.3D.RRCs = merge(Full.3D.RRCs,df.nByRRCs, by="compo.graph.membership")
-rownames(Full.3D.RRCs) = Full.3D.RRCs$compo.graph.membership
-Full.3D.RRCs$compo.graph.membership = NULL
+#p300
+meanRRCsPROM.p300 = aggregate(mean_p300_PROM~membership, enhancers.promoters, mean, na.rm=T)
+meanRRCsEnh.p300 = aggregate(mean_p300_ENH~membership, enhancers.promoters, mean, na.rm=T)
 
-heatmap(cor(Full.3D.RRCs))
-t.test(Full.3D.RRCs$meanFIRE, GRanges.FIREs$ScoreFire, alternative = "greater")
-t.test(Full.3D.RRCs$meanDI, GRanges.DI$DI)
-t.test(Full.3D.RRCs$meanINS, GRanges.INS$normalizedScore, alternative = "greater")
+meanRRCs.p300 = merge(meanRRCsPROM.p300, meanRRCsEnh.p300)
 
-#Analyse Graphique des caracteristiques 3D et du score-ABC au niveau individuel
-#La moyenne sur le genome est affichee a titre indicatif
-par(mfrow = c(1,1))
-plot(Full.3D.RRCs$meanFIRE)
-abline(h=mean(GRanges.FIREs$ScoreFire),lwd=2,col="blue")
+cor(meanRRCs.p300$mean_p300_PROM,meanRRCs.p300$mean_p300_ENH)
+#[1] 0.06732281
 
-plot(Full.3D.RRCs$meanDI)
-abline(h=mean(GRanges.DI$DI),lwd=2, col="blue")
+meanRRCs.p300$meanp300= apply(meanRRCs.p300[,c("mean_p300_PROM","mean_p300_ENH")], 1, mean, na.rm=T)
 
-plot(Full.3D.RRCs$meanINS)
-abline(h=mean(GRanges.INS$normalizedScore), lwd=2, col="blue")
 
-plot(Full.3D.RRCs$ABC.Score)
+#H3K4me3
+meanRRCsPROM.H3K4me3 = aggregate(mean_H3K4me3_PROM~membership, enhancers.promoters, mean, na.rm=T)
+meanRRCsEnh.H3K4me3 = aggregate(mean_H3K4me3_ENH~membership, enhancers.promoters, mean, na.rm=T)
 
-#Analyse Graphique des caracteristiques 3D en fonction de la structure des RRCs en termes de nombres d'elements
-boxplot(meanFIRE~nElements,Full.3D.RRCs, las=2)
-abline(h=mean(GRanges.FIREs$ScoreFire))
-boxplot(meanDI~nElements,Full.3D.RRCs, las=2)
-abline(h=mean(GRanges.DI$DI))
-boxplot(meanINS~nElements,Full.3D.RRCs, las=2)
-abline(h=mean(GRanges.INS$normalizedScore))
-boxplot(ABC.Score~nElements,Full.3D.RRCs, las=2)
+meanRRCs.H3K4me3 = merge(meanRRCsPROM.H3K4me3, meanRRCsEnh.H3K4me3)
+
+cor(meanRRCs.H3K4me3$mean_H3K4me3_PROM, meanRRCs.H3K4me3$mean_H3K4me3_ENH)
+#[1] 0.2437115
+
+meanRRCs.H3K4me3$meanH3K4me3= apply(meanRRCs.H3K4me3[,c("mean_H3K4me3_PROM","mean_H3K4me3_ENH")], 1, mean, na.rm=T)
+
+#Expression 
+expression.genes.RRCs = data.frame(mcols(expression.genes))
+expression.genes.RRCs = expression.genes.RRCs[,c("geneSymbol", "median.Expr")]
+colnames(expression.genes.RRCs) = c("TargetGene", "Expression")
+
+enhancers.promoters = merge(enhancers.promoters, expression.genes.RRCs, by="TargetGene")
+
+Full3D = merge(meanRRCs.FIRE[,c("membership","meanFIRE")],merge(meanRRCs.DI[,c("membership","meanDI")], meanRRCs.INS[,c("membership","meanINS")], by="membership"), by="membership")
+FullAct = merge(meanRRCs.DNAse[,c("membership","meanDNAse")],merge(meanRRCs.H3K27ac[,c("membership","meanH3K27ac")], meanRRCs.CTCF[,c("membership","meanCTCF")], by="membership"), by="membership")
+FullAct = merge(FullAct,merge(meanRRCs.Expre,merge(meanRRCs.H3K4me3[,c("membership", "meanH3K4me3")],merge(meanRRCs.H3K4me1[,c("membership","meanH3K4me1")],meanRRCs.p300[,c("membership", "meanp300")], by="membership"), by = "membership"), by="membership"),by="membership")
+
+Full3DAct= merge(merge(Full3D, FullAct, by="membership"), meanRRCs.ScoreABC, by="membership" )
+rownames(Full3DAct) = Full3DAct$membership
+Full3DAct$membership = NULL
+
+
+relevantCols.Cor.RRCs.ABC = Full3DAct[,-c(ncol(Full3DAct))] 
+colnames(relevantCols.Cor.RRCs.ABC) = c("FIRE","DI","INS","DNAse","H3K27ac","CTCF","Expression","H3K4me3","H3K4me1","p300")
+
+colnames(Full3DAct.DNAse) = colnames(relevantCols.Cor.RRCs.ABC)
+colnames(Full3DAct.Rao) = colnames(relevantCols.Cor.RRCs.ABC)
+
+
+PerformanceAnalytics::chart.Correlation(relevantCols.Cor.RRCs.ABC, method="pearson")
+PerformanceAnalytics::chart.Correlation(Full3DAct.Rao, method="pearson")
+PerformanceAnalytics::chart.Correlation(Full3DAct.DNAse, method="pearson")
+
+######################################################################
+
+######################################################################
+library(lme4)
+
+unique.Enhancers.RRCs = annotate.Activity(H3K27me3Activity.NEU, unique.Enhancers.RRCs, kind="H3K27me3")
+unique.Promoters.RRCs = annotate.Activity(H3K27me3Activity.NEU, unique.Promoters.RRCs, kind="H3K27me3")
+
+H3K27me3.enh = data.frame(unique.Enhancers.RRCs)[,c("seqnames", "start", "end","mean_H3K27me3")]
+colnames(H3K27me3.enh) = c("chr.x", "start", "end", "mean_H3K27me3_ENH")
+H3K27me3.prom = data.frame(unique.Promoters.RRCs)[,c("seqnames", "start", "end","mean_H3K27me3")]
+colnames(H3K27me3.prom) = c("chr.x", "startProm", "endProm", "mean_H3K27me3_PROM")
+
+enhancers.promoters = merge(enhancers.promoters, H3K27me3.prom, by=c("chr.x", "startProm", "endProm"))
+enhancers.promoters = merge(enhancers.promoters, H3K27me3.enh, by=c("chr.x", "start", "end"))
+
+
+enhancers.promoters$mean.Pair.FIREs = apply(enhancers.promoters[,c("ScoreFire.PROM","ScoreFire.ENH")], 1, mean, na.rm=T)
+enhancers.promoters$mean.Pair.INS = apply(enhancers.promoters[,c("INS.PROM","INS.ENH")], 1, mean, na.rm=T)
+enhancers.promoters$mean.Pair.DI = apply(enhancers.promoters[,c("DI.PROM","DI.ENH")], 1, mean, na.rm =T)
+enhancers.promoters$mean.Pair.H3K27ac = apply(enhancers.promoters[,c("mean_H3K27ac_PROM","mean_H3K27ac_ENH")], 1, mean, na.rm=T)
+enhancers.promoters$mean.Pair.CTCF = apply(enhancers.promoters[,c("mean_CTCF_PROM","mean_CTCF_ENH")], 1, mean, na.rm=T)
+enhancers.promoters$mean.Pair.DNAse = apply(enhancers.promoters[,c("mean_DNAse_PROM","mean_DNAse_ENH")], 1, mean, na.rm=T)
+enhancers.promoters$mean.Pair.H3K4me1 = apply(enhancers.promoters[,c("mean_H3K4me1_PROM","mean_H3K4me1_ENH")], 1, mean, na.rm=T)
+enhancers.promoters$mean.Pair.H3K4me3 = apply(enhancers.promoters[,c("mean_H3K4me3_PROM","mean_H3K4me3_ENH")], 1, mean, na.rm=T)
+enhancers.promoters$mean.Pair.p300 = apply(enhancers.promoters[,c("mean_p300_PROM","mean_p300_ENH")], 1, mean, na.rm=T)
+enhancers.promoters$mean.Pair.H3K27me3 = apply(enhancers.promoters[,c("mean_H3K27me3_PROM","mean_H3K27me3_ENH")], 1, mean, na.rm=T)
+
+#Restriction sur les RRCs avec plus d'une connexion:
+
+enhancers.promoters.subset = enhancers.promoters[ave(1:nrow(enhancers.promoters), enhancers.promoters$membership, FUN = length)!=1,]
+
+random.model = function(col2fit, level, data){
+  f = as.formula(paste(col2fit,paste0("1|",level), sep="~"))
+  return(lmer(f, data, REML = T))
+}
+ICC = function(model,nested=F){
+  vc = data.frame(VarCorr(model))
+  if(nested==T){
+    return((vc$vcov[1]+vc$vcov[2])/sum(vc$vcov))
+  }
+  else{
+    return(vc$vcov[1]/sum(vc$vcov))
+  }
+  
+}
+
+
+col2investiguate = c("mean.Pair.FIREs", "mean.Pair.INS", "mean.Pair.DI","mean.Pair.H3K27ac","mean.Pair.CTCF","mean.Pair.DNAse","mean.Pair.H3K4me1","mean.Pair.H3K4me3","mean.Pair.p300")
+ICC.ABC = lapply(col2investiguate, 
+       function(x) ICC(random.model(x,"membership",enhancers.promoters.subset)))
+
+ABC.ICC=data.frame(cbind(col2investiguate, do.call(rbind, ICC.ABC)))
+colnames(ABC.ICC) = c("Metric", "ICC")
+ABC.ICC$Method = "ABC"
+
+#On restreint l'analyse sur les RRCs avec au moins deux genes par RRC
+
+
+ICC(expr.ABC.model)
+
+plot(AL2Genes.ABC[AL2Genes.ABC$membership%in%1:100,"membership"], AL2Genes.ABC[AL2Genes.ABC$membership%in%1:100,"Expression"])
+lines(aggregate(Expression~membership,AL2Genes.ABC[AL2Genes.ABC$membership%in%1:100,], mean)$membership,aggregate(Expression~membership,AL2Genes.ABC[AL2Genes.ABC$membership%in%1:100,], mean)$Expression, col="red", lwd=2)
+#####################################################################################################
+
+hist(GRanges.FIREs$ScoreFire[GRanges.FIREs$ScoreFire<6])
+abline(v=mean(Full3DAct$meanFIRE))
+
+hist(log2(DNAseActivity.NEU$signalValue))
+abline(v=mean(Full3DAct$meanDNAse))
+
+hist(log2(H3K27acActivity.NEU$signalValue))
+abline(v=mean(Full3DAct$meanH3K27ac))
+
+hist(log2(H3K4me1Activity.NEU$signalValue))
+abline(v=mean(Full3DAct$meanH3K4me1))
+
+hist(log2(p300Activity.NEU$signalValue))
+abline(v=mean(Full3DAct$meanp300))
+
+hist(log2(H3K4me3Activity.NEU$signalValue))
+abline(v=mean(Full3DAct$meanH3K4me3))
+################################################################################
+#Nombre de genes par RRCs
+agg.ABC = aggregate(TargetGene~membership, enhancers.promoters, function(x) length(unique(x)))
+
+
+#Filtre sur les RRCs avec 1 Gene et ceux ou l'on observe plus de 2 genes
+Max1Genes.ABC = enhancers.promoters[enhancers.promoters$membership%in% agg.ABC[agg.ABC$TargetGene==1,"membership"],]
+AL2Genes.ABC = enhancers.promoters[enhancers.promoters$membership%in% agg.ABC[agg.ABC$TargetGene>1,"membership"],]
+
+nGenes = aggregate(TargetGene~membership, AL2Genes.ABC, function(x) length(unique(x)))
+nEnh = aggregate(name~membership, AL2Genes.ABC, function(x) length(unique(x)))
+
+max.Expression.RRCs = aggregate(Expression~membership, AL2Genes.ABC, function(x) quantile(x, probs = 0.90))
+max.H3K27ac.RRCs = aggregate(mean.Pair.H3K27ac~membership, AL2Genes.ABC, function(x) quantile(x, probs = 0.90))
+max.CTCF.RRCs = aggregate(mean.Pair.CTCF~membership, AL2Genes.ABC, function(x) quantile(x, probs = 0.90))
+max.DNAse.RRCs = aggregate(mean.Pair.DNAse~membership, AL2Genes.ABC, function(x) quantile(x, probs = 0.90))
+max.H3K4me1.RRCs = aggregate(mean.Pair.H3K4me1~membership, AL2Genes.ABC, function(x) quantile(x, probs = 0.90))
+max.H3K4me3.RRCs = aggregate(mean.Pair.H3K4me3~membership, AL2Genes.ABC, function(x) quantile(x, probs = 0.90))
+max.H3K27me3.RRCs = aggregate(mean.Pair.H3K27me3~membership, AL2Genes.ABC, function(x) quantile(x, probs = 0.90))
+max.p300.RRCs = aggregate(mean.Pair.p300~membership, AL2Genes.ABC, function(x) quantile(x, probs = 0.90))
+
+#Relation entre nombre de genes et d'elements de regulation et expression maximale dans le RRC
+Expression.nElements.RRCs = merge(max.p300.RRCs,merge(max.H3K27me3.RRCs,merge(max.H3K4me3.RRCs,merge(max.H3K4me1.RRCs,merge(max.DNAse.RRCs,merge(max.H3K27ac.RRCs,merge(max.CTCF.RRCs,merge(nGenes, merge(max.Expression.RRCs,nEnh, by="membership"), by="membership"), by="membership"), by="membership"), 
+                                  by="membership"),by="membership"), by="membership"),by="membership"),by="membership")
+
+o1 = ggscatter(Expression.nElements.RRCs[Expression.nElements.RRCs$TargetGene<=50,], x="TargetGene", y="Expression", color = "red", add="loess") + stat_cor(label.x=20, label.y = 5, method="spearman",cor.coef.name = "rho")
+o1 = ggpar(o1, xlab="#Promoters in RRCs", ylab="Expression")
+o2 = ggscatter(Expression.nElements.RRCs[Expression.nElements.RRCs$TargetGene<=50,], x="TargetGene", y="mean.Pair.CTCF", color = "blue", add="loess") + stat_cor(label.x=20, label.y = 5,method="spearman",cor.coef.name = "rho")
+o2 = ggpar(o2, xlab="#Promoters in RRCs", ylab="CTCF")
+o3 = ggscatter(Expression.nElements.RRCs[Expression.nElements.RRCs$TargetGene<=50,], x="TargetGene", y="mean.Pair.H3K27ac", color = "green", add="loess") + stat_cor(label.x=20, label.y = 4,method="spearman",cor.coef.name = "rho")
+o3 = ggpar(o3, xlab="#Promoters in RRCs", ylab="H3K27ac")
+o4 = ggscatter(Expression.nElements.RRCs[Expression.nElements.RRCs$TargetGene<=50,], x="TargetGene", y="mean.Pair.DNAse", color = "black", add="loess") + stat_cor(label.x=20, label.y = 4,method="spearman",cor.coef.name = "rho")
+o4 = ggpar(o4, xlab="#Promoters in RRCs", ylab="DNAse")
+o5 = ggscatter(Expression.nElements.RRCs[Expression.nElements.RRCs$TargetGene<=50,], x="TargetGene", y="mean.Pair.H3K4me1", color = "grey", add="loess") + stat_cor(label.x=20, label.y = 4,method="spearman",cor.coef.name = "rho")
+o5 = ggpar(o5, xlab="#Promoters in RRCs", ylab="H3K4me1")
+o6 = ggscatter(Expression.nElements.RRCs[Expression.nElements.RRCs$TargetGene<=50,], x="TargetGene", y="mean.Pair.H3K4me3", color = "yellow", add="loess") + stat_cor(label.x=20, label.y = 4,method="spearman",cor.coef.name = "rho")
+o6 = ggpar(o6, xlab="#Promoters in RRCs", ylab="H3K4me3")
+o7 = ggscatter(Expression.nElements.RRCs[Expression.nElements.RRCs$TargetGene<=50,], x="TargetGene", y="mean.Pair.H3K27me3", color = "purple", add="loess") + stat_cor(label.x=20, label.y = 4,method="spearman",cor.coef.name = "rho")
+o7 = ggpar(o7, xlab="#Promoters in RRCs", ylab="H3K27me3")
+o8 = ggscatter(Expression.nElements.RRCs[Expression.nElements.RRCs$TargetGene<=50,], x="TargetGene", y="mean.Pair.p300", color = "cyan", add="loess") + stat_cor(label.x=20, label.y = 4,method="spearman",cor.coef.name = "rho")
+o8 = ggpar(o8, xlab="#Promoters in RRCs", ylab="p300")
+ggarrange(o1,o2,o3,o4,o5,o6,o7,o8, ncol=2, nrow=4, labels = c("A","B","C","D","E","F","G", "H"))
+
+o1 = ggscatter(Expression.nElements.RRCs[Expression.nElements.RRCs$name<=50,], x="name", y="Expression", color = "red", add="loess") + stat_cor(label.x=20, label.y = 4,method="spearman",cor.coef.name = "rho")
+o1 = ggpar(o1, xlab="#Regulatory_Elements in RRCs", ylab="Expression")
+o2 = ggscatter(Expression.nElements.RRCs[Expression.nElements.RRCs$name<=50,], x="name", y="mean.Pair.CTCF", color = "blue", add="loess") + stat_cor(label.x=20, label.y = 5,method="spearman",cor.coef.name = "rho")
+o2 = ggpar(o2, xlab="#Regulatory_Elements in RRCs", ylab="CTCF")
+o3 = ggscatter(Expression.nElements.RRCs[Expression.nElements.RRCs$name<=50,], x="name", y="mean.Pair.H3K27ac", color = "green", add="loess") + stat_cor(label.x=20, label.y = 4,method="spearman",cor.coef.name = "rho")
+o3 = ggpar(o3, xlab="#Regulatory_Elements in RRCs", ylab="H3K27ac")
+o4 = ggscatter(Expression.nElements.RRCs[Expression.nElements.RRCs$name<=50,], x="name", y="mean.Pair.DNAse", color = "black", add="loess") + stat_cor(label.x=20, label.y = 4,method="spearman",cor.coef.name = "rho")
+o4 = ggpar(o4, xlab="#Regulatory_Elements in RRCs", ylab="DNAse")
+o5 = ggscatter(Expression.nElements.RRCs[Expression.nElements.RRCs$name<=50,], x="name", y="mean.Pair.H3K4me1", color = "grey", add="loess") + stat_cor(label.x=20, label.y = 4,method="spearman",cor.coef.name = "rho")
+o5 = ggpar(o5, xlab="#Regulatory_Elements in RRCs", ylab="H3K4me1")
+o6 = ggscatter(Expression.nElements.RRCs[Expression.nElements.RRCs$name<=50,], x="name", y="mean.Pair.H3K4me3", color = "yellow", add="loess") + stat_cor(label.x=20, label.y = 4,method="spearman",cor.coef.name = "rho")
+o6 = ggpar(o6, xlab="#Regulatory_Elements in RRCs", ylab="H3K4me3")
+o7 = ggscatter(Expression.nElements.RRCs[Expression.nElements.RRCs$name<=50,], x="name", y="mean.Pair.H3K27me3", color = "purple", add="loess") + stat_cor(label.x=20, label.y = 4,method="spearman",cor.coef.name = "rho")
+o7 = ggpar(o7, xlab="#Regulatory_Elements in RRCs", ylab="H3K27me3")
+o8 = ggscatter(Expression.nElements.RRCs[Expression.nElements.RRCs$name<=50,], x="name", y="mean.Pair.p300", color = "cyan", add="loess") + stat_cor(label.x=20, label.y = 4,method="spearman",cor.coef.name = "rho")
+o8 = ggpar(o8, xlab="#Regulatory_Elements in RRCs", ylab="p300")
+ggarrange(o1,o2,o3,o4,o5,o6,o7,o8, ncol=2, nrow=4, labels = c("A","B","C","D","E","F","G", "H"))
+
+#200 Genes les plus exprimes:
+top200Expr.ABC = order(unique(enhancers.promoters[,c("TargetGene","Expression")])[,"Expression"], decreasing = T)[1:200]
+membership.mostexpressed.ABC = unique(enhancers.promoters[top200Expr.ABC,"membership"])
+SizeG.RRCs.mostexpressed = aggregate(TargetGene~membership,enhancers.promoters[enhancers.promoters$membership%in%membership.mostexpressed.ABC,], function(x) length(unique(x)))
+
+SizeG.RRCs.ALL = aggregate(TargetGene~membership,enhancers.promoters[!enhancers.promoters$membership%in%membership.mostexpressed.ABC,], function(x) length(unique(x)))
+
+mean(SizeG.RRCs.mostexpressed$TargetGene);mean(SizeG.RRCs.ALL$TargetGene)
+wilcox.test(SizeG.RRCs.mostexpressed$TargetGene,SizeG.RRCs.ALL$TargetGene)
+t.test(SizeG.RRCs.mostexpressed$TargetGene,SizeG.RRCs.ALL$TargetGene, alternative = "greater")
+
+
+SizeG.RRCs.mostexpressed$MostExpressed = "YES"
+SizeG.RRCs.ALL$MostExpressed = "NO"
+
+NGenes.mostExpressed = rbind(SizeG.RRCs.mostexpressed, SizeG.RRCs.ALL)
+NGenes.mostExpressed$type="Promoter"
+
+SizeE.RRCs.mostexpressed = aggregate(name~membership,enhancers.promoters[enhancers.promoters$membership%in%membership.mostexpressed.ABC,], function(x) length(unique(x)))
+SizeE.RRCs.ALL = aggregate(name~membership,enhancers.promoters[!enhancers.promoters$membership%in%membership.mostexpressed.ABC,], function(x) length(unique(x)))
+wilcox.test(SizeE.RRCs.mostexpressed$name,SizeE.RRCs.ALL$name)
+t.test(SizeE.RRCs.mostexpressed$name,SizeE.RRCs.ALL$name, alternative = "greater")
+
+SizeE.RRCs.mostexpressed$MostExpressed = "YES"
+SizeE.RRCs.ALL$MostExpressed = "NO"
+
+NRegul.mostExpressed = rbind(SizeE.RRCs.mostexpressed, SizeE.RRCs.ALL)
+NRegul.mostExpressed$type="Regulatory"
+colnames(NGenes.mostExpressed) = c("membership", "N", "MostExpressed", "type")
+colnames(NRegul.mostExpressed) = c("membership", "N", "MostExpressed", "type")
+
+mostExpressed.ALL = rbind(NGenes.mostExpressed,NRegul.mostExpressed)
+
+p = ggboxplot(mostExpressed.ALL,x="type", y="N", color="MostExpressed", add="jitter")
+p = ggpar(p, legend.title = "Expression Status", ylab="#Elements in RRC", xlab="Element Type")
+
+
+relationships.mostExpressed.Genes.ABC = enhancers.promoters[enhancers.promoters$TargetGene%in%enhancers.promoters[top200Expr.ABC,"TargetGene"],"TargetGene"]
+relationships.mostExpressed.Genes.ABC = droplevels(relationships.mostExpressed.Genes.ABC)
+
+summary(as.numeric(table(relationships.mostExpressed.Genes.ABC)))
+
+relationships.ALL.Genes.ABC = enhancers.promoters[!enhancers.promoters$TargetGene%in%names(relationships.mostExpressed.Genes.ABC),"TargetGene"]
+relationships.ALL.Genes.ABC = droplevels(relationships.ALL.Genes.ABC)
+
+wer = data.frame((cbind("YES",table(relationships.mostExpressed.Genes.ABC))))
+wfr = data.frame((cbind("NO",table(relationships.ALL.Genes.ABC))))
+
+all.relationships.Genes.ABC = rbind(wer, wfr)
+all.relationships.Genes.ABC$X0 = rownames(all.relationships.Genes.ABC)
+colnames(all.relationships.Genes.ABC) = c("MostExpressed", "N","TargetGene")
+rownames(all.relationships.Genes.ABC) = NULL
+all.relationships.Genes.ABC$N = as.numeric(as.character(all.relationships.Genes.ABC$N))
+q = ggboxplot(all.relationships.Genes.ABC,x="MostExpressed", y="N", color="MostExpressed", add="jitter")
+q = ggpar(q, legend="",ylab="#Connected Elements to gene", xlab="Expression Status")
+
+
+ggarrange(p+stat_compare_means(method = "t.test", aes(group=MostExpressed), label="p.format") , q+stat_compare_means(method = "t.test", label="p.format",ref.group = "NO", method.args=list(alternative="greater")),
+          labels = c("A","B"), ncol=1, nrow=2)
+summary(as.numeric(table(relationships.ALL.Genes.ABC)))
+
+
+wilcox.test(as.numeric(table(relationships.mostExpressed.Genes.ABC)),as.numeric(table(relationships.ALL.Genes.ABC)))
+t.test(as.numeric(table(relationships.mostExpressed.Genes.ABC)),as.numeric(table(relationships.ALL.Genes.ABC)), alternative = "greater")
+
+#######################################################################
+#Rao
+
+first(Pairs.prom.regulatory.Rao) = annotate.Activity(H3K27me3Activity.NEU, first(Pairs.prom.regulatory.Rao), kind = "H3K27me3")
+second(Pairs.prom.regulatory.Rao) = annotate.Activity(H3K27me3Activity.NEU, second(Pairs.prom.regulatory.Rao), kind = "H3K27me3")
+
+H3K27me3.enh.Rao = data.frame(second(Pairs.prom.regulatory.Rao))[,c("seqnames", "start", "end","mean_H3K27me3")]
+colnames(H3K27me3.enh.Rao) = c("chr.y", "start.y", "end.y", "mean_H3K27me3.y")
+H3K27me3.prom.Rao = data.frame(first(Pairs.prom.regulatory.Rao))[,c("seqnames", "start", "end","mean_H3K27me3")]
+colnames(H3K27me3.prom.Rao) = c("chr.x", "start.x", "end.x", "mean_H3K27me3.x")
+
+df.Rao = merge(df.Rao, H3K27me3.prom.Rao, by=c("chr.x", "start.x", "end.x"))
+df.Rao = merge(df.Rao, H3K27me3.enh.Rao, by=c("chr.y", "start.y", "end.y"))
+
+
+nGenes.Rao = aggregate(geneSymbol.x~compo.Rao.membership, df.Rao, function(x) length(unique(x)))
+Max1Genes.Rao = df.Rao[df.Rao$compo.Rao.membership %in% nGenes.Rao[nGenes.Rao$geneSymbol.x==1,"compo.Rao.membership"],]
+AL2Genes.Rao = df.Rao[df.Rao$compo.Rao.membership %in% nGenes.Rao[nGenes.Rao$geneSymbol.x>1,"compo.Rao.membership"],]
+
+MaxExpression.Rao = aggregate(Expression~compo.Rao.membership,AL2Genes.Rao, function(x) quantile(x, probs = 0.90))
+max.H3K27ac.Rao = aggregate(mean.Pair.H3K27ac~compo.Rao.membership, AL2Genes.Rao, function(x) quantile(x, probs = 0.90))
+max.CTCF.Rao = aggregate(mean.Pair.CTCF~compo.Rao.membership, AL2Genes.Rao, function(x) quantile(x, probs = 0.90))
+max.DNAse.Rao = aggregate(mean.Pair.DNAse~compo.Rao.membership, AL2Genes.Rao, function(x) quantile(x, probs = 0.90))
+max.H3K4me1.Rao = aggregate(mean.Pair.H3K4me1~compo.Rao.membership, AL2Genes.Rao, function(x) quantile(x, probs = 0.90))
+max.H3K4me3.Rao = aggregate(mean.Pair.H3K4me3~compo.Rao.membership, AL2Genes.Rao, function(x) quantile(x, probs = 0.90))
+max.H3K27me3.Rao = aggregate(mean.Pair.H3K27me3~compo.Rao.membership, AL2Genes.Rao, function(x) quantile(x, probs = 0.90))
+max.p300.Rao = aggregate(mean.Pair.p300~compo.Rao.membership, AL2Genes.Rao, function(x) quantile(x, probs = 0.90))
+
+
+nGenes.membership.Rao = aggregate(geneSymbol.x~compo.Rao.membership, AL2Genes.Rao, function(x) length(unique(x)))
+nEnhan.membership.Rao = aggregate(name~compo.Rao.membership, AL2Genes.Rao, function(x) length(unique(x)))
+
+Expression.nElements.RRCs.Rao = merge(max.p300.Rao,merge(max.H3K27me3.Rao,merge(max.H3K4me3.Rao,merge(max.H3K4me1.Rao,merge(max.DNAse.Rao,merge(max.CTCF.Rao,merge(max.H3K27ac.Rao,merge(nGenes.membership.Rao, merge(MaxExpression.Rao,nEnhan.membership.Rao, by="compo.Rao.membership"), by="compo.Rao.membership"),
+                                                                                                                                                                   by="compo.Rao.membership"),by="compo.Rao.membership"),by="compo.Rao.membership"),by="compo.Rao.membership"),by="compo.Rao.membership"),by="compo.Rao.membership"),by="compo.Rao.membership")
+Expression.nElements.RRCs.Rao$N = ifelse(Expression.nElements.RRCs.Rao$geneSymbol.x>4, "5+", as.character(Expression.nElements.RRCs.Rao$geneSymbol.x))
+Expression.nElements.RRCs.Rao$N_name = ifelse(Expression.nElements.RRCs.Rao$name>4, "5+", as.character(Expression.nElements.RRCs.Rao$name))
+Expression.nElements.RRCs.Rao$N_name = factor(Expression.nElements.RRCs.Rao$N_name, levels=c("1", "2","3","4","5+"))
+
+
+o1.Rao = ggscatter(Expression.nElements.RRCs.Rao[Expression.nElements.RRCs.Rao$geneSymbol.x<20,], x="geneSymbol.x", y="Expression", color = "red", add="loess") + stat_cor(method="spearman",label.x=5, label.y = 10, cor.coef.name = "rho")
+o1.Rao = ggpar(o1.Rao, xlab="#Promoters in RRCs", ylab="Expression")
+o2.Rao = ggscatter(Expression.nElements.RRCs.Rao[Expression.nElements.RRCs.Rao$geneSymbol.x<20,], x="geneSymbol.x", y="mean.Pair.CTCF", color = "blue", add="loess") + stat_cor(method="spearman",label.x=5, label.y = 10, cor.coef.name = "rho")
+o2.Rao = ggpar(o2.Rao, xlab="#Promoters in RRCs", ylab="CTCF")
+o3.Rao = ggscatter(Expression.nElements.RRCs.Rao[Expression.nElements.RRCs.Rao$geneSymbol.x<20,], x="geneSymbol.x", y="mean.Pair.H3K27ac", color = "green", add="loess") + stat_cor(method="spearman",label.x=5, label.y = 3, cor.coef.name = "rho")
+o3.Rao = ggpar(o3.Rao, xlab="#Promoters in RRCs", ylab="H3K27ac")
+o4.Rao = ggscatter(Expression.nElements.RRCs.Rao[Expression.nElements.RRCs.Rao$geneSymbol.x<20,], x="geneSymbol.x", y="mean.Pair.DNAse", color = "black", add="loess") + stat_cor(method="spearman",label.x=5, label.y = 3, cor.coef.name = "rho")
+o4.Rao = ggpar(o4.Rao, xlab="#Promoters in RRCs", ylab="DNAse")
+o5.Rao = ggscatter(Expression.nElements.RRCs.Rao[Expression.nElements.RRCs.Rao$geneSymbol.x<20,], x="geneSymbol.x", y="mean.Pair.H3K4me1", color = "grey", add="loess") + stat_cor(method="spearman",label.x=5, label.y = 3, cor.coef.name = "rho")
+o5.Rao = ggpar(o5.Rao, xlab="#Promoters in RRCs", ylab="H3K4me1")
+o6.Rao = ggscatter(Expression.nElements.RRCs.Rao[Expression.nElements.RRCs.Rao$geneSymbol.x<20,], x="geneSymbol.x", y="mean.Pair.H3K4me3", color = "yellow", add="loess") + stat_cor(method="spearman",label.x=5, label.y = 3, cor.coef.name = "rho")
+o6.Rao = ggpar(o6.Rao, xlab="#Promoters in RRCs", ylab="H3K4me3")
+o7.Rao = ggscatter(Expression.nElements.RRCs.Rao[Expression.nElements.RRCs.Rao$geneSymbol.x<20,], x="geneSymbol.x", y="mean.Pair.H3K27me3", color = "purple", add="loess") + stat_cor(method="spearman",label.x=5, label.y = 7, cor.coef.name = "rho")
+o7.Rao = ggpar(o7.Rao, xlab="#Promoters in RRCs", ylab="H3K27me3")
+o8.Rao = ggscatter(Expression.nElements.RRCs.Rao[Expression.nElements.RRCs.Rao$geneSymbol.x<20,], x="geneSymbol.x", y="mean.Pair.p300", color = "cyan", add="loess") + stat_cor(method="spearman",label.x=5, label.y = 7, cor.coef.name = "rho")
+o8.Rao = ggpar(o8.Rao, xlab="#Promoters in RRCs", ylab="p300")
+ggarrange(o1.Rao,o2.Rao,o3.Rao,o4.Rao,o5.Rao,o6.Rao,o7.Rao,o8.Rao, ncol=2, nrow=4, labels = c("A","B","C","D","E","F","G", "H"))
+
+o1.Rao = ggscatter(Expression.nElements.RRCs.Rao, x="name", y="Expression", color = "red", add="loess") + stat_cor(method="spearman",label.x=10, label.y = 10, cor.coef.name = "rho")
+o1.Rao = ggpar(o1.Rao, xlab="#Regulatory-Elements in RRCs", ylab="Expression")
+o2.Rao = ggscatter(Expression.nElements.RRCs.Rao, x="name", y="mean.Pair.CTCF", color = "blue", add="loess") + stat_cor(method="spearman",label.x=10, label.y = 10, cor.coef.name = "rho")
+o2.Rao = ggpar(o2.Rao, xlab="#Regulatory-Elements in RRCs", ylab="CTCF")
+o3.Rao = ggscatter(Expression.nElements.RRCs.Rao, x="name", y="mean.Pair.H3K27ac", color = "green", add="loess") + stat_cor(method="spearman",label.x=10, label.y = 4, cor.coef.name = "rho")
+o3.Rao = ggpar(o3.Rao, xlab="#Regulatory-Elements in RRCs", ylab="H3K27ac")
+o4.Rao = ggscatter(Expression.nElements.RRCs.Rao, x="name", y="mean.Pair.DNAse", color = "black", add="loess") + stat_cor(method="spearman",label.x=10, label.y = 4, cor.coef.name = "rho")
+o4.Rao = ggpar(o4.Rao, xlab="#Regulatory-Elements in RRCs", ylab="DNAse")
+o5.Rao = ggscatter(Expression.nElements.RRCs.Rao, x="name", y="mean.Pair.H3K4me1", color = "grey", add="loess") + stat_cor(method="spearman",label.x=10, label.y = 4, cor.coef.name = "rho")
+o5.Rao = ggpar(o5.Rao, xlab="#Regulatory-Elements in RRCs", ylab="H3K4me1")
+o6.Rao = ggscatter(Expression.nElements.RRCs.Rao, x="name", y="mean.Pair.H3K4me3", color = "yellow", add="loess") + stat_cor(method="spearman",label.x=10, label.y = 4, cor.coef.name = "rho")
+o6.Rao = ggpar(o6.Rao, xlab="#Regulatory-Elements in RRCs", ylab="H3K4me3")
+o7.Rao = ggscatter(Expression.nElements.RRCs.Rao, x="name", y="mean.Pair.H3K27me3", color = "purple", add="loess") + stat_cor(method="spearman",label.x=10, label.y = 9, cor.coef.name = "rho")
+o7.Rao = ggpar(o7.Rao, xlab="#Regulatory-Elements in RRCs", ylab="H3K27me3")
+o8.Rao = ggscatter(Expression.nElements.RRCs.Rao, x="name", y="mean.Pair.p300", color = "cyan", add="loess") + stat_cor(method="spearman",label.x=10, label.y = 8, cor.coef.name = "rho")
+o8.Rao = ggpar(o8.Rao, xlab="#Regulatory-Elements in RRCs", ylab="p300")
+ggarrange(o1.Rao,o2.Rao,o3.Rao,o4.Rao,o5.Rao,o6.Rao,o7.Rao,o8.Rao, ncol=2, nrow=4, labels = c("A","B","C","D","E","F","G", "H"))
+
+
+
+
+
+r = ggboxplot(Expression.nElements.RRCs.Rao,x="N", y="Expression", color="N", add="jitter") +
+  rotate_x_text(angle = 45)+geom_hline(yintercept=mean(Expression.nElements.RRCs.Rao$Expression), linetype=2)
+r = ggpar(r, legend="", xlab="#promoters in RRC")
+
+
+s = ggboxplot(Expression.nElements.RRCs.Rao,x="N_name", y="Expression", color="N_name", add="jitter") +
+  rotate_x_text(angle = 45)+geom_hline(yintercept=mean(Expression.nElements.RRCs.Rao$Expression), linetype=2)
+s = ggpar(s, legend="", xlab="#regulatory-elements in RRC")
+
+ggarrange(r +  stat_compare_means(method = "anova", label.y = 10) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                     ref.group = "2", method.args=list(alternative="greater")),s +  stat_compare_means(method = "anova", label.y = 10)+stat_compare_means(label = "p.signif", method = "t.test",
+                                                                           ref.group = "1", method.args=list(alternative="greater")), labels=c("A","B"), nrow=2, ncol=1)
+
+Expression.nElements.Rao = merge(max.p300.Rao,merge(max.H3K27me3.Rao,merge(max.H3K4me3.Rao,merge(max.H3K4me1.Rao,merge(max.DNAse.Rao,merge(max.H3K27ac.Rao,merge(max.CTCF.Rao,merge(nGenes.Rao, merge(max.Expression.Rao,nEnhan.membership.Rao, by="compo.Rao.membership"), by="compo.Rao.membership"), by="compo.Rao.membership"), by="compo.Rao.membership"), 
+                                                                                                                            by="compo.Rao.membership"),by="compo.Rao.membership"), by="compo.Rao.membership"),by="compo.Rao.membership"),by="compo.Rao.membership")
+
+Expression.nElements.Rao$N_name = ifelse(Expression.nElements.Rao$name>4, "5+", as.character(Expression.nElements.Rao$name))
+Expression.nElements.Rao$N_name = factor(Expression.nElements.Rao$N_name, levels=c("1", "2","3","4","5+"))
+
+Expression.nElements.Rao$N = ifelse(Expression.nElements.Rao$geneSymbol.x>4, "5+", as.character(Expression.nElements.Rao$geneSymbol.x))
+Expression.nElements.Rao$N = factor(Expression.nElements.Rao$N, levels=c("1", "2","3","4","5+"))
+
+oo1 = ggboxplot(Expression.nElements.Rao, x = "N", y="mean.Pair.H3K27ac", color="N") 
+oo1 = ggpar(oo1, legend = "", xlab="#promoters", ylab="H3K27ac", ylim=c(0,4))
+oo1=oo1 + stat_compare_means(method = "anova", label.y = 3) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                             ref.group = "2", method.args=list(alternative="greater"))
+oo2 = ggboxplot(Expression.nElements.Rao, x = "N", y="mean.Pair.H3K27me3", color="N") 
+oo2 = ggpar(oo2, legend = "", xlab="#promoters", ylab="H3K27me3",ylim=c(0,7))
+oo2=oo2 + stat_compare_means(method = "anova", label.y = 6) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                              ref.group = "2", method.args=list(alternative="greater"))
+oo3 = ggboxplot(Expression.nElements.Rao, x = "N", y="mean.Pair.H3K4me1", color="N") 
+oo3 = ggpar(oo3, legend = "", xlab="#promoters", ylab="H3K4me1",ylim=c(0,4))
+oo3=oo3 + stat_compare_means(method = "anova", label.y = 3) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                              ref.group = "2", method.args=list(alternative="greater"))
+oo4 = ggboxplot(Expression.nElements.Rao, x = "N", y="mean.Pair.H3K4me3", color="N") 
+oo4 = ggpar(oo4, legend = "", xlab="#promoters", ylab="H3K4me3",ylim=c(0,5))
+oo4 = oo4 + stat_compare_means(method = "anova", label.y = 3) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                              ref.group = "2", method.args=list(alternative="greater"))
+oo5 = ggboxplot(Expression.nElements.Rao, x = "N", y="mean.Pair.CTCF", color="N") 
+oo5 = ggpar(oo5, legend = "", xlab="#promoters", ylab="CTCF",ylim=c(0,12))
+oo5 =oo5 + stat_compare_means(method = "anova", label.y = 9) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                              ref.group = "2", method.args=list(alternative="greater"))
+oo6 = ggboxplot(Expression.nElements.Rao, x = "N", y="mean.Pair.DNAse", color="N") 
+oo6 = ggpar(oo6, legend = "", xlab="#promoters", ylab="DNAse",ylim=c(0,4))
+oo6= oo6 + stat_compare_means(method = "anova", label.y = 3) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                              ref.group = "2", method.args=list(alternative="greater"))
+
+oo7 = ggboxplot(Expression.nElements.Rao, x = "N", y="mean.Pair.p300", color="N") 
+oo7 = ggpar(oo7, legend = "", xlab="#promoters", ylab="p300",ylim=c(0,7))
+oo7=oo7 + stat_compare_means(method = "anova", label.y = 6) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                              ref.group = "2", method.args=list(alternative="greater"))
+
+ggarrange(oo1,oo2,oo3,oo4,oo5,oo6,oo7, labels=c("A","B","C","D","E","F","G"), nrow=4, ncol=2)
+
+oo1 = ggboxplot(Expression.nElements.Rao, x = "N_name", y="mean.Pair.H3K27ac", color="N_name") 
+oo1 = ggpar(oo1, legend = "", xlab="#Regulatory_elements", ylab="H3K27ac", ylim=c(0,4))
+oo1=oo1 + stat_compare_means(method = "anova", label.y = 3) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                ref.group = "1", method.args=list(alternative="greater"))
+oo2 = ggboxplot(Expression.nElements.Rao, x = "N_name", y="mean.Pair.H3K27me3", color="N_name") 
+oo2 = ggpar(oo2, legend = "", xlab="#Regulatory_elements", ylab="H3K27me3",ylim=c(0,7))
+oo2=oo2 + stat_compare_means(method = "anova", label.y = 6) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                ref.group = "1", method.args=list(alternative="greater"))
+oo3 = ggboxplot(Expression.nElements.Rao, x = "N_name", y="mean.Pair.H3K4me1", color="N_name") 
+oo3 = ggpar(oo3, legend = "", xlab="#Regulatory_elements", ylab="H3K4me1",ylim=c(0,4))
+oo3=oo3 + stat_compare_means(method = "anova", label.y = 3) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                ref.group = "1", method.args=list(alternative="greater"))
+oo4 = ggboxplot(Expression.nElements.Rao, x = "N_name", y="mean.Pair.H3K4me3", color="N_name") 
+oo4 = ggpar(oo4, legend = "", xlab="#Regulatory_elements", ylab="H3K4me3",ylim=c(0,5))
+oo4 = oo4 + stat_compare_means(method = "anova", label.y = 3) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                  ref.group = "1", method.args=list(alternative="greater"))
+oo5 = ggboxplot(Expression.nElements.Rao, x = "N_name", y="mean.Pair.CTCF", color="N_name") 
+oo5 = ggpar(oo5, legend = "", xlab="#Regulatory_elements", ylab="CTCF",ylim=c(0,12))
+oo5 =oo5 + stat_compare_means(method = "anova", label.y = 9) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                 ref.group = "1", method.args=list(alternative="greater"))
+oo6 = ggboxplot(Expression.nElements.Rao, x = "N_name", y="mean.Pair.DNAse", color="N_name") 
+oo6 = ggpar(oo6, legend = "", xlab="#Regulatory_elements", ylab="DNAse",ylim=c(0,4))
+oo6= oo6 + stat_compare_means(method = "anova", label.y = 3) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                 ref.group = "1", method.args=list(alternative="greater"))
+
+oo7 = ggboxplot(Expression.nElements.Rao, x = "N_name", y="mean.Pair.p300", color="N_name") 
+oo7 = ggpar(oo7, legend = "", xlab="#Regulatory_elements", ylab="p300",ylim=c(0,7))
+oo7=oo7 + stat_compare_means(method = "anova", label.y = 6) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                ref.group = "1", method.args=list(alternative="greater"))
+
+ggarrange(oo1,oo2,oo3,oo4,oo5,oo6,oo7, labels=c("A","B","C","D","E","F","G"), nrow=4, ncol=2)
+
+
+
+
+
+summary(aov(Expression.nElements.RRCs.Rao$Expression~Expression.nElements.RRCs.Rao$N))
+summary(aov(Expression.nElements.RRCs.Rao$Expression~Expression.nElements.RRCs.Rao$N_name))
+
+top200Expr.Rao = order(unique(df.Rao[,c("geneSymbol.x","Expression")])[,"Expression"], decreasing = T)[1:200]
+membership.mostexpressed.Rao = unique(df.Rao[top200Expr.Rao,"compo.Rao.membership"])
+
+SizeG.RRCs.mostexpressed.Rao = aggregate(geneSymbol.x~compo.Rao.membership,df.Rao[df.Rao$compo.Rao.membership%in%membership.mostexpressed.Rao,], function(x) length(unique(x)))
+SizeG.RRCs.ALL.Rao = aggregate(geneSymbol.x~compo.Rao.membership,df.Rao[!df.Rao$compo.Rao.membership%in%membership.mostexpressed.Rao,],function(x) length(unique(x)))
+
+mean(SizeG.RRCs.mostexpressed.Rao$geneSymbol.x);mean(SizeG.RRCs.ALL.Rao$geneSymbol.x)
+wilcox.test(SizeG.RRCs.mostexpressed.Rao$geneSymbol.x,SizeG.RRCs.ALL.Rao$geneSymbol.x)
+t.test(SizeG.RRCs.mostexpressed.Rao$geneSymbol.x,SizeG.RRCs.ALL.Rao$geneSymbol.x, alternative = "greater")
+
+SizeG.RRCs.mostexpressed.Rao$MostExpressed = "YES"
+SizeG.RRCs.ALL.Rao$MostExpressed = "NO"
+
+NGenes.mostExpressed.Rao = rbind(SizeG.RRCs.mostexpressed.Rao, SizeG.RRCs.ALL.Rao)
+NGenes.mostExpressed.Rao$type="Promoter"
+
+SizeE.RRCs.mostexpressed.Rao = aggregate(name~compo.Rao.membership,df.Rao[df.Rao$compo.Rao.membership%in%membership.mostexpressed.Rao,], function(x) length(unique(x)))
+SizeE.RRCs.ALL.Rao = aggregate(name~compo.Rao.membership,df.Rao[!df.Rao$compo.Rao.membership%in%membership.mostexpressed.Rao,], function(x) length(unique(x)))
+wilcox.test(SizeE.RRCs.mostexpressed.Rao$name,SizeE.RRCs.ALL.Rao$name)
+t.test(SizeE.RRCs.mostexpressed.Rao$name,SizeE.RRCs.ALL.Rao$name, alternative = "greater")
+
+SizeE.RRCs.mostexpressed.Rao$MostExpressed = "YES"
+SizeE.RRCs.ALL.Rao$MostExpressed = "NO"
+
+NRegul.mostExpressed.Rao = rbind(SizeE.RRCs.mostexpressed.Rao, SizeE.RRCs.ALL.Rao)
+NRegul.mostExpressed.Rao$type="Regulatory"
+colnames(NGenes.mostExpressed.Rao) = c("membership", "N", "MostExpressed", "type")
+colnames(NRegul.mostExpressed.Rao) = c("membership", "N", "MostExpressed", "type")
+
+mostExpressed.ALL.Rao = rbind(NGenes.mostExpressed.Rao,NRegul.mostExpressed.Rao)
+
+v = ggboxplot(mostExpressed.ALL.Rao,x="type", y="N", color="MostExpressed", add="jitter")
+v = ggpar(v,legend.title="Expression Status", ylab="#Elements in RRC", xlab="Element Type")
+
+
+relationships.mostExpressed.Genes.Rao = df.Rao[df.Rao$geneSymbol.x%in%df.Rao[top200Expr.Rao,"geneSymbol.x"],"geneSymbol.x"]
+relationships.mostExpressed.Genes.Rao = droplevels(relationships.mostExpressed.Genes.Rao)
+
+summary(as.numeric(table(relationships.mostExpressed.Genes.Rao)))
+
+relationships.ALL.Genes.Rao = df.Rao[!df.Rao$geneSymbol.x%in%names(relationships.mostExpressed.Genes.Rao),"geneSymbol.x"]
+
+wer.Rao = data.frame((cbind("YES",table(relationships.mostExpressed.Genes.Rao))))
+wfr.Rao = data.frame((cbind("NO",table(relationships.ALL.Genes.Rao))))
+
+all.relationships.Genes.Rao = rbind(wer.Rao, wfr.Rao)
+all.relationships.Genes.Rao$X0 = rownames(all.relationships.Genes.Rao)
+colnames(all.relationships.Genes.Rao) = c("MostExpressed", "N","TargetGene")
+rownames(all.relationships.Genes.Rao) = NULL
+all.relationships.Genes.Rao$N = as.numeric(as.character(all.relationships.Genes.Rao$N))
+i = ggboxplot(all.relationships.Genes.Rao,x="MostExpressed", y="N", color="MostExpressed", add="jitter")
+i = ggpar(i, legend="", ylab="#Connected Elements to gene", xlab="Expression Status")
+
+
+ggarrange(v+stat_compare_means(method = "t.test", aes(group=MostExpressed), label="p.format", label.y = 50)  ,i+stat_compare_means(method = "t.test", label="p.format") , labels=c("A","B"), nrow=2, ncol=1)
+
+first(Pairs.prom.regulatory.DNAse) = annotate.Activity(H3K27me3Activity.NEU, first(Pairs.prom.regulatory.DNAse), kind = "H3K27me3")
+second(Pairs.prom.regulatory.DNAse) = annotate.Activity(H3K27me3Activity.NEU, second(Pairs.prom.regulatory.DNAse), kind = "H3K27me3")
+
+H3K27me3.enh.DNAse = data.frame(first(Pairs.prom.regulatory.DNAse))[,c("seqnames", "start", "end","mean_H3K27me3")]
+colnames(H3K27me3.enh.DNAse) = c("chr.x", "startPeak", "endPeak", "mean_H3K27me3.x")
+H3K27me3.prom.DNAse = data.frame(second(Pairs.prom.regulatory.DNAse))[,c("seqnames", "start", "end","mean_H3K27me3")]
+colnames(H3K27me3.prom.DNAse) = c("chr.y", "start.y", "end.y", "mean_H3K27me3.y")
+
+df.DNAse = merge(df.DNAse, H3K27me3.prom.DNAse, by=c("chr.y", "start.y", "end.y"))
+df.DNAse = merge(df.DNAse, H3K27me3.enh.DNAse, by=c("chr.x", "startPeak", "endPeak"))
+
+MaxExpression.DNAse = aggregate(Expression~compo.DNAse.membership,df.DNAse, max)
+
+nGenes.DNAse = aggregate(geneSymbol.y~compo.DNAse.membership, df.DNAse, function(x) length(unique(x)))
+Max1Genes.DNAse = df.DNAse[df.DNAse$compo.DNAse.membership %in% nGenes.DNAse[nGenes.DNAse$geneSymbol.y==1,"compo.DNAse.membership"],]
+AL2Genes.DNAse = df.DNAse[df.DNAse$compo.DNAse.membership %in% nGenes.DNAse[nGenes.DNAse$geneSymbol.y>1,"compo.DNAse.membership"],]
+
+MaxExpression.DNAse = aggregate(Expression~compo.DNAse.membership,AL2Genes.DNAse, function(x) quantile(x, probs = 0.9))
+max.H3K27ac.DNAse = aggregate(mean.Pair.H3K27ac~compo.DNAse.membership, AL2Genes.DNAse, function(x) quantile(x, probs = 0.9))
+max.CTCF.DNAse = aggregate(mean.Pair.CTCF~compo.DNAse.membership, AL2Genes.DNAse, function(x) quantile(x, probs = 0.9))
+max.DNAse.DNAse = aggregate(mean.Pair.DNAse~compo.DNAse.membership, AL2Genes.DNAse, function(x) quantile(x, probs = 0.9))
+max.H3K4me1.DNAse = aggregate(mean.Pair.H3K4me1~compo.DNAse.membership, AL2Genes.DNAse, function(x) quantile(x, probs = 0.9))
+max.H3K4me3.DNAse = aggregate(mean.Pair.H3K4me3~compo.DNAse.membership, AL2Genes.DNAse, function(x) quantile(x, probs = 0.9))
+max.H3K27me3.DNAse = aggregate(mean.Pair.H3K27me3~compo.DNAse.membership, AL2Genes.DNAse, function(x) quantile(x, probs = 0.9))
+max.p300.DNAse = aggregate(mean.Pair.p300~compo.DNAse.membership, AL2Genes.DNAse, function(x) quantile(x, probs = 0.9))
+
+nGenes.membership.DNAse = aggregate(geneSymbol.y~compo.DNAse.membership, AL2Genes.DNAse, function(x) length(unique(x)))
+nEnhan.membership.DNAse = aggregate(name~compo.DNAse.membership, AL2Genes.DNAse, function(x) length(unique(x)))
+
+
+Expression.nElements.RRCs.DNAse = merge(max.p300.DNAse,merge(max.H3K27me3.DNAse,merge(max.H3K4me3.DNAse,merge(max.H3K4me1.DNAse,merge(max.DNAse.DNAse,merge(max.CTCF.DNAse,merge(max.H3K27ac.DNAse,merge(nGenes.membership.DNAse, merge(MaxExpression.DNAse,nEnhan.membership.DNAse, by="compo.DNAse.membership"), by="compo.DNAse.membership"),
+                                                                                                                                                                   by="compo.DNAse.membership"),by="compo.DNAse.membership"),by="compo.DNAse.membership"),by="compo.DNAse.membership"),by="compo.DNAse.membership"),by="compo.DNAse.membership"),by="compo.DNAse.membership")
+
+Expression.nElements.RRCs.DNAse$N = ifelse(Expression.nElements.RRCs.DNAse$geneSymbol.y>4, "5+", as.character(Expression.nElements.RRCs.DNAse$geneSymbol.y))
+Expression.nElements.RRCs.DNAse$N_name = ifelse(Expression.nElements.RRCs.DNAse$name>4, "5+", as.character(Expression.nElements.RRCs.DNAse$name))
+
+Expression.nElements.RRCs.DNAse$N =factor(Expression.nElements.RRCs.DNAse$N, levels=c("1","2","3","4","5+"))
+Expression.nElements.RRCs.DNAse$N_name =factor(Expression.nElements.RRCs.DNAse$N_name, levels=c("1","2","3","4","5+"))
+
+
+o1.DNAse = ggscatter(Expression.nElements.RRCs.DNAse, x="geneSymbol.y", y="Expression", color = "red", add="loess") + stat_cor(method="spearman",label.x=6, label.y = 4, cor.coef.name = "rho")
+o1.DNAse = ggpar(o1.DNAse, xlab="#Promoters in RRCs", ylab="Expression")
+o2.DNAse = ggscatter(Expression.nElements.RRCs.DNAse, x="geneSymbol.y", y="mean.Pair.CTCF", color = "blue", add="loess") + stat_cor(method="spearman",label.x=6, label.y = 5, cor.coef.name = "rho")
+o2.DNAse = ggpar(o2.DNAse, xlab="#Promoters in RRCs", ylab="CTCF")
+o3.DNAse = ggscatter(Expression.nElements.RRCs.DNAse, x="geneSymbol.y", y="mean.Pair.H3K27ac", color = "green", add="loess") + stat_cor(method="spearman",label.x=6, label.y = 3, cor.coef.name = "rho")
+o3.DNAse = ggpar(o3.DNAse, xlab="#Promoters in RRCs", ylab="H3K27ac")
+o4.DNAse = ggscatter(Expression.nElements.RRCs.DNAse, x="geneSymbol.y", y="mean.Pair.DNAse", color = "black", add="loess") + stat_cor(method="spearman",label.x=6, label.y = 3, cor.coef.name = "rho")
+o4.DNAse = ggpar(o4.DNAse, xlab="#Promoters in RRCs", ylab="DNAse")
+o5.DNAse = ggscatter(Expression.nElements.RRCs.DNAse, x="geneSymbol.y", y="mean.Pair.H3K4me1", color = "grey", add="loess") + stat_cor(method="spearman",label.x=6, label.y = 3, cor.coef.name = "rho")
+o5.DNAse = ggpar(o5.DNAse, xlab="#Promoters in RRCs", ylab="H3K4me1")
+o6.DNAse = ggscatter(Expression.nElements.RRCs.DNAse, x="geneSymbol.y", y="mean.Pair.H3K4me3", color = "yellow", add="loess") + stat_cor(method="spearman",label.x=6, label.y = 3, cor.coef.name = "rho")
+o6.DNAse = ggpar(o6.DNAse, xlab="#Promoters in RRCs", ylab="H3K4me3")
+o7.DNAse = ggscatter(Expression.nElements.RRCs.DNAse, x="geneSymbol.y", y="mean.Pair.H3K27me3", color = "purple", add="loess") + stat_cor(method="spearman",label.x=6, label.y = 3, cor.coef.name = "rho")
+o7.DNAse = ggpar(o7.DNAse, xlab="#Promoters in RRCs", ylab="H3K27me3")
+o8.DNAse = ggscatter(Expression.nElements.RRCs.DNAse, x="geneSymbol.y", y="mean.Pair.p300", color = "cyan", add="loess") + stat_cor(method="spearman",label.x=6, label.y = 7, cor.coef.name = "rho")
+o8.DNAse = ggpar(o8.DNAse, xlab="#Promoters in RRCs", ylab="p300")
+ggarrange(o1.DNAse,o2.DNAse,o3.DNAse,o4.DNAse,o5.DNAse,o6.DNAse,o7.DNAse,o8.DNAse, ncol=2, nrow=4, labels = c("A","B","C","D","E","F","G", "H"))
+
+o1.DNAse = ggscatter(Expression.nElements.RRCs.DNAse[Expression.nElements.RRCs.DNAse$name<30,], x="name", y="Expression", color = "red", add="loess") + stat_cor(method="spearman",label.x=10 ,label.y = 5, cor.coef.name = "rho")
+o1.DNAse = ggpar(o1.DNAse, xlab="#Regulatory-Elements in RRCs", ylab="Expression")
+o2.DNAse = ggscatter(Expression.nElements.RRCs.DNAse[Expression.nElements.RRCs.DNAse$name<30,], x="name", y="mean.Pair.CTCF", color = "blue", add="loess") + stat_cor(method="spearman",label.x=10, label.y = 5, cor.coef.name = "rho")
+o2.DNAse = ggpar(o2.DNAse, xlab="#Regulatory-Elements in RRCs", ylab="CTCF")
+o3.DNAse = ggscatter(Expression.nElements.RRCs.DNAse[Expression.nElements.RRCs.DNAse$name<30,], x="name", y="mean.Pair.H3K27ac", color = "green", add="loess") + stat_cor(method="spearman",label.x=10, label.y = 4, cor.coef.name = "rho")
+o3.DNAse = ggpar(o3.DNAse, xlab="#Regulatory-Elements in RRCs", ylab="H3K27ac")
+o4.DNAse = ggscatter(Expression.nElements.RRCs.DNAse[Expression.nElements.RRCs.DNAse$name<30,], x="name", y="mean.Pair.DNAse", color = "black", add="loess") + stat_cor(method="spearman",label.x=10, label.y = 4, cor.coef.name = "rho")
+o4.DNAse = ggpar(o4.DNAse, xlab="#Regulatory-Elements in RRCs", ylab="DNAse")
+o5.DNAse = ggscatter(Expression.nElements.RRCs.DNAse[Expression.nElements.RRCs.DNAse$name<30,], x="name", y="mean.Pair.H3K4me1", color = "grey", add="loess") + stat_cor(method="spearman",label.x=10, label.y = 4, cor.coef.name = "rho")
+o5.DNAse = ggpar(o5.DNAse, xlab="#Regulatory-Elements in RRCs", ylab="H3K4me1")
+o6.DNAse = ggscatter(Expression.nElements.RRCs.DNAse[Expression.nElements.RRCs.DNAse$name<30,], x="name", y="mean.Pair.H3K4me3", color = "yellow", add="loess") + stat_cor(method="spearman",label.x=10, label.y = 7, cor.coef.name = "rho")
+o6.DNAse = ggpar(o6.DNAse, xlab="#Regulatory-Elements in RRCs", ylab="H3K4me3")
+o7.DNAse = ggscatter(Expression.nElements.RRCs.DNAse[Expression.nElements.RRCs.DNAse$name<30,], x="name", y="mean.Pair.H3K27me3", color = "purple", add="loess") + stat_cor(method="spearman",label.x=10, label.y = 4, cor.coef.name = "rho")
+o7.DNAse = ggpar(o7.DNAse, xlab="#Regulatory-Elements in RRCs", ylab="H3K27me3")
+o8.DNAse = ggscatter(Expression.nElements.RRCs.DNAse[Expression.nElements.RRCs.DNAse$name<30,], x="name", y="mean.Pair.p300", color = "cyan", add="loess") + stat_cor(method="spearman",label.x=10, label.y = 7, cor.coef.name = "rho")
+o8.DNAse = ggpar(o8.DNAse, xlab="#Regulatory-Elements in RRCs", ylab="p300")
+ggarrange(o1.DNAse,o2.DNAse,o3.DNAse,o4.DNAse,o5.DNAse,o6.DNAse,o7.DNAse,o8.DNAse, ncol=2, nrow=4, labels = c("A","B","C","D","E","F","G", "H"))
+
+
+t = ggboxplot(Expression.nElements.RRCs.DNAse,x="N", y="Expression", color="N", add="jitter") +
+  rotate_x_text(angle = 45)+geom_hline(yintercept=mean(Expression.nElements.RRCs.DNAse$Expression), linetype=2)
+t = ggpar(t, legend="", xlab="#promoters in RRCs", ylab="Expression")
+
+
+u = ggboxplot(Expression.nElements.RRCs.DNAse,x="N_name", y="Expression", color="N_name", add="jitter") +
+  rotate_x_text(angle = 45)+geom_hline(yintercept=mean(Expression.nElements.RRCs.DNAse$Expression), linetype=2)
+u = ggpar(u, legend="", xlab="#regulatory-elements in RRCs", ylab="Expression")
+
+
+ggarrange(t +  stat_compare_means(method = "anova", label.y = 10) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                      ref.group = "2", method.args=list(alternative="greater")),u +  stat_compare_means(method = "anova", label.y = 10)+stat_compare_means(label = "p.signif", method = "t.test",
+                                                                           ref.group = "1", method.args=list(alternative="greater")), labels=c("A","B"), nrow=2, ncol=1)
+
+
+Expression.nElements.DNAse = merge(max.p300.DNAse,merge(max.H3K27me3.DNAse,merge(max.H3K4me3.DNAse,merge(max.H3K4me1.DNAse,merge(max.DNAse.DNAse,merge(max.H3K27ac.DNAse,merge(max.CTCF.DNAse,merge(nGenes.DNAse, merge(max.Expression.DNAse,nEnhan.membership.DNAse, by="compo.DNAse.membership"), by="compo.DNAse.membership"), by="compo.DNAse.membership"), by="compo.DNAse.membership"), 
+                                                                                                                       by="compo.DNAse.membership"),by="compo.DNAse.membership"), by="compo.DNAse.membership"),by="compo.DNAse.membership"),by="compo.DNAse.membership")
+
+Expression.nElements.DNAse$N_name = ifelse(Expression.nElements.DNAse$name>4, "5+", as.character(Expression.nElements.DNAse$name))
+Expression.nElements.DNAse$N_name = factor(Expression.nElements.DNAse$N_name, levels=c("1", "2","3","4","5+"))
+
+Expression.nElements.DNAse$N = ifelse(Expression.nElements.DNAse$geneSymbol.y>4, "5+", as.character(Expression.nElements.DNAse$geneSymbol.y))
+Expression.nElements.DNAse$N = factor(Expression.nElements.DNAse$N, levels=c("1", "2","3","4","5+"))
+
+oo1 = ggboxplot(Expression.nElements.DNAse, x = "N", y="mean.Pair.H3K27ac", color="N") 
+oo1 = ggpar(oo1, legend = "", xlab="#promoters", ylab="H3K27ac")
+oo1=oo1 + stat_compare_means(method = "anova", label.y = 2.8) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                ref.group = "2", method.args=list(alternative="greater"))
+oo2 = ggboxplot(Expression.nElements.DNAse, x = "N", y="mean.Pair.H3K27me3", color="N") 
+oo2 = ggpar(oo2, legend = "", xlab="#promoters", ylab="H3K27me3", ylim = c(0,4.2))
+oo2=oo2 + stat_compare_means(method = "anova", label.y = 4) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                ref.group = "2", method.args=list(alternative="greater"))
+oo3 = ggboxplot(Expression.nElements.DNAse, x = "N", y="mean.Pair.H3K4me1", color="N") 
+oo3 = ggpar(oo3, legend = "", xlab="#promoters", ylab="H3K4me1")
+oo3=oo3 + stat_compare_means(method = "anova", label.y = 2.8) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                ref.group = "2", method.args=list(alternative="greater"))
+oo4 = ggboxplot(Expression.nElements.DNAse, x = "N", y="mean.Pair.H3K4me3", color="N") 
+oo4 = ggpar(oo4, legend = "", xlab="#promoters", ylab="H3K4me3")
+oo4 = oo4 + stat_compare_means(method = "anova", label.y = 6) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                  ref.group = "2", method.args=list(alternative="greater"))
+oo5 = ggboxplot(Expression.nElements.DNAse, x = "N", y="mean.Pair.CTCF", color="N") 
+oo5 = ggpar(oo5, legend = "", xlab="#promoters", ylab="CTCF")
+oo5 =oo5 + stat_compare_means(method = "anova", label.y = 10) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                 ref.group = "2", method.args=list(alternative="greater"))
+oo6 = ggboxplot(Expression.nElements.DNAse, x = "N", y="mean.Pair.DNAse", color="N") 
+oo6 = ggpar(oo6, legend = "", xlab="#promoters", ylab="DNAse")
+oo6= oo6 + stat_compare_means(method = "anova", label.y = 3.3) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                 ref.group = "2", method.args=list(alternative="greater"))
+
+oo7 = ggboxplot(Expression.nElements.DNAse, x = "N", y="mean.Pair.p300", color="N") 
+oo7 = ggpar(oo7, legend = "", xlab="#promoters", ylab="p300")
+oo7=oo7 + stat_compare_means(method = "anova", label.y = 7.5) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                ref.group = "2", method.args=list(alternative="greater"))
+
+ggarrange(oo1,oo2,oo3,oo4,oo5,oo6,oo7, labels=c("A","B","C","D","E","F","G"), nrow=4, ncol=2)
+
+oo1 = ggboxplot(Expression.nElements.DNAse, x = "N_name", y="mean.Pair.H3K27ac", color="N_name") 
+oo1 = ggpar(oo1, legend = "", xlab="#Regulatory_elements", ylab="H3K27ac", ylim=c(0,3.2))
+oo1=oo1 + stat_compare_means(method = "anova", label.y = 2.8) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                  ref.group = "1", method.args=list(alternative="greater"))
+oo2 = ggboxplot(Expression.nElements.DNAse, x = "N_name", y="mean.Pair.H3K27me3", color="N_name") 
+oo2 = ggpar(oo2, legend = "", xlab="#Regulatory_elements", ylab="H3K27me3", ylim = c(0,4.2))
+oo2=oo2 + stat_compare_means(method = "anova", label.y = 4) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                ref.group = "1", method.args=list(alternative="greater"))
+oo3 = ggboxplot(Expression.nElements.DNAse, x = "N_name", y="mean.Pair.H3K4me1", color="N_name") 
+oo3 = ggpar(oo3, legend = "", xlab="#Regulatory_elements", ylab="H3K4me1",ylim=c(0,4))
+oo3=oo3 + stat_compare_means(method = "anova", label.y = 2.8) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                  ref.group = "1", method.args=list(alternative="greater"))
+oo4 = ggboxplot(Expression.nElements.DNAse, x = "N_name", y="mean.Pair.H3K4me3", color="N_name") 
+oo4 = ggpar(oo4, legend = "", xlab="#Regulatory_elements", ylab="H3K4me3",ylim=c(0,7))
+oo4 = oo4 + stat_compare_means(method = "anova", label.y = 6) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                  ref.group = "1", method.args=list(alternative="greater"))
+oo5 = ggboxplot(Expression.nElements.DNAse, x = "N_name", y="mean.Pair.CTCF", color="N_name") 
+oo5 = ggpar(oo5, legend = "", xlab="#Regulatory_elements", ylab="CTCF",ylim=c(0,12))
+oo5 =oo5 + stat_compare_means(method = "anova", label.y = 10) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                  ref.group = "1", method.args=list(alternative="greater"))
+oo6 = ggboxplot(Expression.nElements.DNAse, x = "N_name", y="mean.Pair.DNAse", color="N_name") 
+oo6 = ggpar(oo6, legend = "", xlab="#Regulatory_elements", ylab="DNAse",ylim=c(0,4))
+oo6= oo6 + stat_compare_means(method = "anova", label.y = 3.3) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                   ref.group = "1", method.args=list(alternative="greater"))
+
+oo7 = ggboxplot(Expression.nElements.DNAse, x = "N_name", y="mean.Pair.p300", color="N_name") 
+oo7 = ggpar(oo7, legend = "", xlab="#Regulatory_elements", ylab="p300",ylim=c(0,9))
+oo7=oo7 + stat_compare_means(method = "anova", label.y = 7.5) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                  ref.group = "1", method.args=list(alternative="greater"))
+
+ggarrange(oo1,oo2,oo3,oo4,oo5,oo6,oo7, labels=c("A","B","C","D","E","F","G"), nrow=4, ncol=2)
+
+
+
+top200Expr.DNAse = order(unique(df.DNAse[,c("geneSymbol.y","Expression")])[,"Expression"], decreasing = T)[1:200]
+membership.mostexpressed.DNAse = unique(df.DNAse[top200Expr.DNAse,"compo.DNAse.membership"])
+
+SizeG.RRCs.mostexpressed.DNAse = aggregate(geneSymbol.y~compo.DNAse.membership,df.DNAse[df.DNAse$compo.DNAse.membership%in%membership.mostexpressed.DNAse,], function(x) length(unique(x)))
+SizeG.RRCs.ALL.DNAse = aggregate(geneSymbol.y~compo.DNAse.membership,df.DNAse[!df.DNAse$compo.DNAse.membership%in%membership.mostexpressed.DNAse,],function(x) length(unique(x)))
+
+mean(SizeG.RRCs.mostexpressed.DNAse$geneSymbol.y);mean(SizeG.RRCs.ALL.DNAse$geneSymbol.y)
+wilcox.test(SizeG.RRCs.mostexpressed.DNAse$geneSymbol.y,SizeG.RRCs.ALL.DNAse$geneSymbol.y)
+t.test(SizeG.RRCs.mostexpressed.DNAse$geneSymbol.y,SizeG.RRCs.ALL.DNAse$geneSymbol.y, alternative = "greater")
+
+SizeG.RRCs.mostexpressed.DNAse$MostExpressed = "YES"
+SizeG.RRCs.ALL.DNAse$MostExpressed = "NO"
+
+NGenes.mostExpressed.DNAse = rbind(SizeG.RRCs.mostexpressed.DNAse, SizeG.RRCs.ALL.DNAse)
+NGenes.mostExpressed.DNAse$type="Promoter"
+
+SizeE.RRCs.mostexpressed.DNAse = aggregate(name~compo.DNAse.membership,df.DNAse[df.DNAse$compo.DNAse.membership%in%membership.mostexpressed.DNAse,], function(x) length(unique(x)))
+SizeE.RRCs.ALL.DNAse = aggregate(name~compo.DNAse.membership,df.DNAse[!df.DNAse$compo.DNAse.membership%in%membership.mostexpressed.DNAse,], function(x) length(unique(x)))
+wilcox.test(SizeE.RRCs.mostexpressed.DNAse$name,SizeE.RRCs.ALL.DNAse$name)
+t.test(SizeE.RRCs.mostexpressed.DNAse$name,SizeE.RRCs.ALL.DNAse$name, alternative = "greater")
+
+SizeE.RRCs.mostexpressed.DNAse$MostExpressed = "YES"
+SizeE.RRCs.ALL.DNAse$MostExpressed = "NO"
+
+NRegul.mostExpressed.DNAse = rbind(SizeE.RRCs.mostexpressed.DNAse, SizeE.RRCs.ALL.DNAse)
+NRegul.mostExpressed.DNAse$type="Regulatory"
+colnames(NGenes.mostExpressed.DNAse) = c("membership", "N", "MostExpressed", "type")
+colnames(NRegul.mostExpressed.DNAse) = c("membership", "N", "MostExpressed", "type")
+
+mostExpressed.ALL.DNAse = rbind(NGenes.mostExpressed.DNAse,NRegul.mostExpressed.DNAse)
+
+w = ggboxplot(mostExpressed.ALL.DNAse,x="type", y="N", color="MostExpressed", add="jitter")
+w = ggpar(w, legend.title="Expression Status",ylab="#Elements in RRC", xlab="Element Type")
+
+
+relationships.mostExpressed.Genes.DNAse = df.DNAse[df.DNAse$geneSymbol.y%in%df.DNAse[top200Expr.DNAse,"geneSymbol.y"],"geneSymbol.y"]
+
+summary(as.numeric(table(relationships.mostExpressed.Genes.DNAse)))
+
+relationships.ALL.Genes.DNAse = df.DNAse[!df.DNAse$geneSymbol.y%in%names(relationships.mostExpressed.Genes.DNAse),"geneSymbol.y"]
+
+wer.DNAse = data.frame((cbind("YES",table(relationships.mostExpressed.Genes.DNAse))))
+wfr.DNAse = data.frame((cbind("NO",table(relationships.ALL.Genes.DNAse))))
+
+all.relationships.Genes.DNAse = rbind(wer.DNAse, wfr.DNAse)
+all.relationships.Genes.DNAse$X0 = rownames(all.relationships.Genes.DNAse)
+colnames(all.relationships.Genes.DNAse) = c("MostExpressed", "N","TargetGene")
+rownames(all.relationships.Genes.DNAse) = NULL
+all.relationships.Genes.DNAse$N = as.numeric(as.character(all.relationships.Genes.DNAse$N))
+j = ggboxplot(all.relationships.Genes.DNAse,x="MostExpressed", y="N", color="MostExpressed", add="jitter")
+j = ggpar(j,legend="",ylab="#Connected Elements to gene", xlab="Expression Status")
+
+ggarrange(w+stat_compare_means(method = "t.test", aes(group=MostExpressed), label="p.format", label.y=30)  ,j+stat_compare_means(method = "t.test", label="p.format") ,
+          labels=c("A", "B"), nrow = 2, ncol=1)
+
+
+#ICC pour chaque structure de RRCs considerees: 
+
+model.global.ABC = lmer(Expression~(1|membership),Expression.Gene.membership.ABC, REML=T)
+ICC(model.global.ABC, nested = F)
+model.global.Rao = lmer(Expression~(1|compo.Rao.membership),Expression.Gene.membership.Rao, REML=T)
+ICC(model.global.Rao, nested = F)
+model.global.DNAse = lmer(Expression~(1|compo.DNAse.membership),Expression.Gene.membership.DNAse, REML=T)
+ICC(model.global.DNAse, nested = F)
+
+nGenesbyRRCs.ABC = aggregate(TargetGene~membership,Expression.Gene.membership.ABC, length)
+nGenesbyRRCs.Rao = aggregate(geneSymbol.x~compo.Rao.membership,Expression.Gene.membership.Rao, length)
+nGenesbyRRCs.DNAse = aggregate(geneSymbol.y~compo.DNAse.membership,Expression.Gene.membership.DNAse, length)
+
+ICC.ABC = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:60], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  model = lmer(Expression~(1|membership),Expression.Gene.membership.ABC[Expression.Gene.membership.ABC$membership%in%subset.membership.ABC,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+ICC.Rao = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x)), function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  model = lmer(Expression~(1|compo.Rao.membership),Expression.Gene.membership.Rao[Expression.Gene.membership.Rao$compo.Rao.membership%in%subset.membership.Rao,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+ICC.DNAse = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  model = lmer(Expression~(1|compo.DNAse.membership),Expression.Gene.membership.DNAse[Expression.Gene.membership.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+df.ICC.ABC = cbind("ABC",sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:60],data.frame(ICC.ABC))
+df.ICC.Rao = cbind("Rao",sort(unique(nGenesbyRRCs.Rao$geneSymbol.x)),data.frame(ICC.Rao))
+df.ICC.DNAse = cbind("DNAse",sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)),data.frame(ICC.DNAse))
+
+colnames(df.ICC.ABC) = c("Method", "N", "ICC")
+colnames(df.ICC.Rao)=colnames(df.ICC.ABC)
+colnames(df.ICC.DNAse)=colnames(df.ICC.ABC)
+
+df.ICC.all = rbind(df.ICC.ABC,df.ICC.Rao,df.ICC.DNAse)
+
+a1 = ggline(df.ICC.all, x = "N", y="ICC", color="Method")
+a1 = ggpar(a1, xlab="#promoters in RRC", title="Expression")
+
+ICC.ABC.CTCF = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:60], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  model = lmer(mean.Pair.CTCF~(1|membership),enhancers.promoters[enhancers.promoters$membership%in%subset.membership.ABC,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+ICC.Rao.CTCF = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x)), function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  model = lmer(mean.Pair.CTCF~(1|compo.Rao.membership),df.Rao[df.Rao$compo.Rao.membership%in%subset.membership.Rao,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+ICC.DNAse.CTCF = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  model = lmer(mean.Pair.CTCF~(1|compo.DNAse.membership),df.DNAse[df.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+df.ICC.ABC.CTCF = cbind("ABC",sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:60],data.frame(ICC.ABC.CTCF))
+df.ICC.Rao.CTCF = cbind("Rao",sort(unique(nGenesbyRRCs.Rao$geneSymbol.x)),data.frame(ICC.Rao.CTCF))
+df.ICC.DNAse.CTCF = cbind("DNAse",sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)),data.frame(ICC.DNAse.CTCF))
+
+colnames(df.ICC.ABC.CTCF) = c("Method", "N", "ICC")
+colnames(df.ICC.Rao.CTCF)=colnames(df.ICC.ABC.CTCF)
+colnames(df.ICC.DNAse.CTCF)=colnames(df.ICC.ABC.CTCF)
+
+df.ICC.all.CTCF = rbind(df.ICC.ABC.CTCF,df.ICC.Rao.CTCF,df.ICC.DNAse.CTCF)
+
+a2 = ggline(df.ICC.all.CTCF, x = "N", y="ICC", color="Method")
+a2 = ggpar(a2, xlab="#promoters in RRC", title="CTCF Activity")
+
+ICC.ABC.H3K27ac = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:60], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  model = lmer(mean.Pair.H3K27ac~(1|membership),enhancers.promoters[enhancers.promoters$membership%in%subset.membership.ABC,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+ICC.Rao.H3K27ac = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x)), function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  model = lmer(mean.Pair.H3K27ac~(1|compo.Rao.membership),df.Rao[df.Rao$compo.Rao.membership%in%subset.membership.Rao,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+ICC.DNAse.H3K27ac = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  model = lmer(mean.Pair.H3K27ac~(1|compo.DNAse.membership),df.DNAse[df.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+df.ICC.ABC.H3K27ac = cbind("ABC",sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:60],data.frame(ICC.ABC.H3K27ac))
+df.ICC.Rao.H3K27ac = cbind("Rao",sort(unique(nGenesbyRRCs.Rao$geneSymbol.x)),data.frame(ICC.Rao.H3K27ac))
+df.ICC.DNAse.H3K27ac = cbind("DNAse",sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)),data.frame(ICC.DNAse.H3K27ac))
+
+colnames(df.ICC.ABC.H3K27ac) = c("Method", "N", "ICC")
+colnames(df.ICC.Rao.H3K27ac)=colnames(df.ICC.ABC.H3K27ac)
+colnames(df.ICC.DNAse.H3K27ac)=colnames(df.ICC.ABC.H3K27ac)
+
+df.ICC.all.H3K27ac = rbind(df.ICC.ABC.H3K27ac,df.ICC.Rao.H3K27ac,df.ICC.DNAse.H3K27ac)
+
+a3 = ggline(df.ICC.all.H3K27ac, x = "N", y="ICC", color="Method")
+a3 = ggpar(a3, xlab="#promoters in RRC", title="H3K27ac Activity")
+
+ICC.ABC.H3K4me3 = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:60], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  model = lmer(mean.Pair.H3K4me3~(1|membership),enhancers.promoters[enhancers.promoters$membership%in%subset.membership.ABC,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+ICC.Rao.H3K4me3 = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x)), function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  model = lmer(mean.Pair.H3K4me3~(1|compo.Rao.membership),df.Rao[df.Rao$compo.Rao.membership%in%subset.membership.Rao,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+ICC.DNAse.H3K4me3 = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  model = lmer(mean.Pair.H3K4me3~(1|compo.DNAse.membership),df.DNAse[df.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+df.ICC.ABC.H3K4me3 = cbind("ABC",sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:60],data.frame(ICC.ABC.H3K4me3))
+df.ICC.Rao.H3K4me3 = cbind("Rao",sort(unique(nGenesbyRRCs.Rao$geneSymbol.x)),data.frame(ICC.Rao.H3K4me3))
+df.ICC.DNAse.H3K4me3 = cbind("DNAse",sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)),data.frame(ICC.DNAse.H3K4me3))
+
+colnames(df.ICC.ABC.H3K4me3) = c("Method", "N", "ICC")
+colnames(df.ICC.Rao.H3K4me3)=colnames(df.ICC.ABC.H3K4me3)
+colnames(df.ICC.DNAse.H3K4me3)=colnames(df.ICC.ABC.H3K4me3)
+
+df.ICC.all.H3K4me3 = rbind(df.ICC.ABC.H3K4me3,df.ICC.Rao.H3K4me3,df.ICC.DNAse.H3K4me3)
+a4 = ggline(df.ICC.all.H3K4me3, x = "N", y="ICC", color="Method")
+a4 = ggpar(a4, xlab="#promoters in RRC", title="H3K4me3 Activity")
+
+ICC.ABC.H3K4me1 = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:60], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  model = lmer(mean.Pair.H3K4me1~(1|membership),enhancers.promoters[enhancers.promoters$membership%in%subset.membership.ABC,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+ICC.Rao.H3K4me1 = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x)), function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  model = lmer(mean.Pair.H3K4me1~(1|compo.Rao.membership),df.Rao[df.Rao$compo.Rao.membership%in%subset.membership.Rao,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+ICC.DNAse.H3K4me1 = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  model = lmer(mean.Pair.H3K4me1~(1|compo.DNAse.membership),df.DNAse[df.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+df.ICC.ABC.H3K4me1 = cbind("ABC",sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:60],data.frame(ICC.ABC.H3K4me1))
+df.ICC.Rao.H3K4me1 = cbind("Rao",sort(unique(nGenesbyRRCs.Rao$geneSymbol.x)),data.frame(ICC.Rao.H3K4me1))
+df.ICC.DNAse.H3K4me1 = cbind("DNAse",sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)),data.frame(ICC.DNAse.H3K4me1))
+
+colnames(df.ICC.ABC.H3K4me1) = c("Method", "N", "ICC")
+colnames(df.ICC.Rao.H3K4me1)=colnames(df.ICC.ABC.H3K4me1)
+colnames(df.ICC.DNAse.H3K4me1)=colnames(df.ICC.ABC.H3K4me1)
+
+df.ICC.all.H3K4me1 = rbind(df.ICC.ABC.H3K4me1,df.ICC.Rao.H3K4me1,df.ICC.DNAse.H3K4me1)
+a5 = ggline(df.ICC.all.H3K4me1, x = "N", y="ICC", color="Method")
+a5 = ggpar(a5, xlab="#promoters in RRC", title="H3K4me1 Activity")
+
+ICC.ABC.H3K27me3 = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:60], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  model = lmer(mean.Pair.H3K27me3~(1|membership),enhancers.promoters[enhancers.promoters$membership%in%subset.membership.ABC,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+ICC.Rao.H3K27me3 = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x)), function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  model = lmer(mean.Pair.H3K27me3~(1|compo.Rao.membership),df.Rao[df.Rao$compo.Rao.membership%in%subset.membership.Rao,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+ICC.DNAse.H3K27me3 = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  model = lmer(mean.Pair.H3K27me3~(1|compo.DNAse.membership),df.DNAse[df.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+df.ICC.ABC.H3K27me3 = cbind("ABC",sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:60],data.frame(ICC.ABC.H3K27me3))
+df.ICC.Rao.H3K27me3 = cbind("Rao",sort(unique(nGenesbyRRCs.Rao$geneSymbol.x)),data.frame(ICC.Rao.H3K27me3))
+df.ICC.DNAse.H3K27me3 = cbind("DNAse",sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)),data.frame(ICC.DNAse.H3K27me3))
+
+colnames(df.ICC.ABC.H3K27me3) = c("Method", "N", "ICC")
+colnames(df.ICC.Rao.H3K27me3)=colnames(df.ICC.ABC.H3K27me3)
+colnames(df.ICC.DNAse.H3K27me3)=colnames(df.ICC.ABC.H3K27me3)
+
+df.ICC.all.H3K27me3 = rbind(df.ICC.ABC.H3K27me3,df.ICC.Rao.H3K27me3,df.ICC.DNAse.H3K27me3)
+a6 = ggline(df.ICC.all.H3K27me3, x = "N", y="ICC", color="Method")
+a6 = ggpar(a6, xlab="#promoters in RRC", title="H3K27me3 Activity")
+
+ICC.ABC.DNAse = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:60], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  model = lmer(mean.Pair.DNAse~(1|membership),enhancers.promoters[enhancers.promoters$membership%in%subset.membership.ABC,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+ICC.Rao.DNAse = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x)), function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  model = lmer(mean.Pair.DNAse~(1|compo.Rao.membership),df.Rao[df.Rao$compo.Rao.membership%in%subset.membership.Rao,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+ICC.DNAse.DNAse = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  model = lmer(mean.Pair.DNAse~(1|compo.DNAse.membership),df.DNAse[df.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+df.ICC.ABC.DNAse = cbind("ABC",sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:60],data.frame(ICC.ABC.DNAse))
+df.ICC.Rao.DNAse = cbind("Rao",sort(unique(nGenesbyRRCs.Rao$geneSymbol.x)),data.frame(ICC.Rao.DNAse))
+df.ICC.DNAse.DNAse = cbind("DNAse",sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)),data.frame(ICC.DNAse.DNAse))
+
+colnames(df.ICC.ABC.DNAse) = c("Method", "N", "ICC")
+colnames(df.ICC.Rao.DNAse)=colnames(df.ICC.ABC.DNAse)
+colnames(df.ICC.DNAse.DNAse)=colnames(df.ICC.ABC.DNAse)
+
+df.ICC.all.DNAse = rbind(df.ICC.ABC.DNAse,df.ICC.Rao.DNAse,df.ICC.DNAse.DNAse)
+a7 = ggline(df.ICC.all.DNAse, x = "N", y="ICC", color="Method")
+a7 = ggpar(a7, xlab="#promoters in RRC", title="DNAse Activity")
+
+ICC.ABC.p300 = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:60], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  model = lmer(mean.Pair.p300~(1|membership),enhancers.promoters[enhancers.promoters$membership%in%subset.membership.ABC,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+ICC.Rao.p300 = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x)), function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  model = lmer(mean.Pair.p300~(1|compo.Rao.membership),df.Rao[df.Rao$compo.Rao.membership%in%subset.membership.Rao,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+ICC.DNAse.p300 = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  model = lmer(mean.Pair.p300~(1|compo.DNAse.membership),df.DNAse[df.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,], REML=T)
+  return(ICC(model,nested = F))
+})
+
+df.ICC.ABC.p300 = cbind("ABC",sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:60],data.frame(ICC.ABC.p300))
+df.ICC.Rao.p300 = cbind("Rao",sort(unique(nGenesbyRRCs.Rao$geneSymbol.x)),data.frame(ICC.Rao.p300))
+df.ICC.DNAse.p300 = cbind("DNAse",sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)),data.frame(ICC.DNAse.p300))
+
+colnames(df.ICC.ABC.p300) = c("Method", "N", "ICC")
+colnames(df.ICC.Rao.p300)=colnames(df.ICC.ABC.p300)
+colnames(df.ICC.DNAse.p300)=colnames(df.ICC.ABC.p300)
+
+df.ICC.all.p300 = rbind(df.ICC.ABC.p300,df.ICC.Rao.p300,df.ICC.DNAse.p300)
+a8 = ggline(df.ICC.all.p300, x = "N", y="ICC", color="Method")
+a8 = ggpar(a7, xlab="#promoters in RRC", title="p300 Activity")
+
+a1
+library(ggpubr)
+ggarrange(a2,a3,a4,a5,a6,a7,a8, labels=c("A","B","C","D","E","F","G"), nrow=3, ncol=3)
+#########################################################################################
+
+
+Expression.ABC.membership = aggregate(Expression~membership+TargetGene, AL2Genes.ABC, mean)
+
+mean.expression.ABC.membership = aggregate(Expression~membership, Expression.ABC.membership, mean)
+
+mean.expression.ABC.membership$DiffMean = mean.expression.ABC.membership$Expression - mean(Expression.ABC.membership$Expression, na.rm=T)
+jhyt = merge(nGenesbyRRCs.ABC,mean.expression.ABC.membership, by="membership")
+Var.expression.ABC.membership = aggregate(Expression~membership, Expression.ABC.membership, var)
+jhut = merge(nGenesbyRRCs.ABC,Var.expression.ABC.membership, by="membership")
+
+jhyt$TargetGene_Retyp = ifelse(jhyt$TargetGene>14, "15+", as.character(jhyt$TargetGene))
+jhyt$TargetGene_Retyp = factor(jhyt$TargetGene_Retyp, levels=c( "2", "3","4","5","6","7","8", "9", "10", "11", "12","13","14","15+"))
+jhyt$DiffMean_Squared = jhyt$DiffMean^2
+
+cor.test(jhyt$TargetGene, jhyt$DiffMean^2, method="spearman")
+
+jhut$TargetGene_Retyp = ifelse(jhut$TargetGene>14, "15+", as.character(jhut$TargetGene))
+jhut$TargetGene_Retyp = factor(jhut$TargetGene_Retyp, levels=c( "2", "3","4","5","6","7","8", "9", "10", "11", "12","13","14","15+"))
+
+cor.test(jhut$TargetGene, jhut$Expression, method="spearman")
+
+opi = ggboxplot(jhyt, x="TargetGene_Retyp", y ="DiffMean_Squared", color = "TargetGene_Retyp")
+opi = ggpar(opi, legend = "", xlab="#promoters in RRCs", ylab="Difference between RRC mean and Population mean")
+opi +stat_compare_means(method = "anova", label.y = 20) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                           ref.group = "2", method.args=list(alternative="less"))
+
+opi.var = ggboxplot(jhut, x="TargetGene_Retyp", y ="Expression", color = "TargetGene_Retyp")
+opi.var = ggpar(opi.var, legend="", xlab="#promoters in RRCs", ylab="Intra-RRC Expression Variance")
+opi.var +stat_compare_means(method = "anova", label.y = 20) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                            ref.group = "2", method.args=list(alternative="greater"))
+######################################
+#CTCF
+mean.CTCF.ABC.membership = aggregate(mean.Pair.CTCF~membership, AL2Genes.ABC, mean)
+
+mean.CTCF.ABC.membership$DiffMean = mean.CTCF.ABC.membership$mean.Pair.CTCF - mean(AL2Genes.ABC$mean.Pair.CTCF, na.rm=T)
+jhyt = merge(nGenesbyRRCs.ABC,mean.CTCF.ABC.membership, by="membership")
+
+Var.CTCF.ABC.membership = aggregate(mean.Pair.CTCF~membership, AL2Genes.ABC, var)
+jhut = merge(nGenesbyRRCs.ABC,Var.CTCF.ABC.membership, by="membership")
+
+jhyt$TargetGene_Retyp = ifelse(jhyt$TargetGene>14, "15+", as.character(jhyt$TargetGene))
+jhyt$TargetGene_Retyp = factor(jhyt$TargetGene_Retyp, levels=c( "2", "3","4","5","6","7","8", "9", "10", "11", "12","13","14","15+"))
+jhyt$DiffMean_Squared = jhyt$DiffMean^2
+
+cor.test(jhyt$TargetGene, jhyt$DiffMean_Squared, method="spearman")
+
+jhut$TargetGene_Retyp = ifelse(jhut$TargetGene>14, "15+", as.character(jhut$TargetGene))
+jhut$TargetGene_Retyp = factor(jhut$TargetGene_Retyp, levels=c( "2", "3","4","5","6","7","8", "9", "10", "11", "12","13","14","15+"))
+
+cor.test(jhut$TargetGene, jhut$mean.Pair.CTCF, method="spearman")
+
+opi = ggboxplot(jhyt, x="TargetGene_Retyp", y ="DiffMean_Squared", color = "TargetGene_Retyp")
+opi = ggpar(opi, legend = "", xlab="#promoters in RRCs", ylab="Difference between RRC mean and Population mean")
+opi +stat_compare_means(method = "anova", label.y = 20) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                            ref.group = "2", method.args=list(alternative="less"))
+
+opi.var = ggboxplot(jhut, x="TargetGene_Retyp", y ="mean.Pair.CTCF", color = "TargetGene_Retyp")
+opi.var = ggpar(opi.var, legend="", xlab="#promoters in RRCs", ylab="Intra-RRC CTCF Variance")
+opi.var +stat_compare_means(method = "anova", label.y = 20) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                ref.group = "2", method.args=list(alternative="greater"))
+
+##############################################################
+#H3K27ac
+
+mean.H3K27ac.ABC.membership = aggregate(mean.Pair.H3K27ac~membership, AL2Genes.ABC, mean)
+
+mean.H3K27ac.ABC.membership$DiffMean = mean.H3K27ac.ABC.membership$mean.Pair.H3K27ac - mean(AL2Genes.ABC$mean.Pair.H3K27ac, na.rm=T)
+jhyt = merge(nGenesbyRRCs.ABC,mean.H3K27ac.ABC.membership, by="membership")
+
+Var.H3K27ac.ABC.membership = aggregate(mean.Pair.H3K27ac~membership, AL2Genes.ABC, var)
+jhut = merge(nGenesbyRRCs.ABC,Var.H3K27ac.ABC.membership, by="membership")
+
+jhyt$TargetGene_Retyp = ifelse(jhyt$TargetGene>14, "15+", as.character(jhyt$TargetGene))
+jhyt$TargetGene_Retyp = factor(jhyt$TargetGene_Retyp, levels=c( "2", "3","4","5","6","7","8", "9", "10", "11", "12","13","14","15+"))
+jhyt$DiffMean_Squared = jhyt$DiffMean^2
+
+cor.test(jhyt$TargetGene, jhyt$DiffMean_Squared, method="spearman")
+
+jhut$TargetGene_Retyp = ifelse(jhut$TargetGene>14, "15+", as.character(jhut$TargetGene))
+jhut$TargetGene_Retyp = factor(jhut$TargetGene_Retyp, levels=c( "2", "3","4","5","6","7","8", "9", "10", "11", "12","13","14","15+"))
+
+cor.test(jhut$TargetGene, jhut$mean.Pair.H3K27ac, method="spearman")
+
+opi = ggboxplot(jhyt, x="TargetGene_Retyp", y ="DiffMean_Squared", color = "TargetGene_Retyp")
+opi = ggpar(opi, legend = "", xlab="#promoters in RRCs", ylab="Difference between RRC mean and Population mean")
+opi +stat_compare_means(method = "anova", label.y = 0.5) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                            ref.group = "2", method.args=list(alternative="less"))
+
+opi.var = ggboxplot(jhut, x="TargetGene_Retyp", y ="mean.Pair.H3K27ac", color = "TargetGene_Retyp")
+opi.var = ggpar(opi.var, legend="", xlab="#promoters in RRCs", ylab="Intra-RRC H3K27ac Variance")
+opi.var +stat_compare_means(method = "anova", label.y = 0.5) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                ref.group = "2", method.args=list(alternative="greater"))
+
+#########################################################################################
+#H3K4me1
+mean.H3K4me1.ABC.membership = aggregate(mean.Pair.H3K4me1~membership, AL2Genes.ABC, mean)
+
+mean.H3K4me1.ABC.membership$DiffMean = mean.H3K4me1.ABC.membership$mean.Pair.H3K4me1 - mean(AL2Genes.ABC$mean.Pair.H3K4me1, na.rm=T)
+jhyt = merge(nGenesbyRRCs.ABC,mean.H3K4me1.ABC.membership, by="membership")
+
+Var.H3K4me1.ABC.membership = aggregate(mean.Pair.H3K4me1~membership, AL2Genes.ABC, var)
+jhut = merge(nGenesbyRRCs.ABC,Var.H3K4me1.ABC.membership, by="membership")
+
+jhyt$TargetGene_Retyp = ifelse(jhyt$TargetGene>14, "15+", as.character(jhyt$TargetGene))
+jhyt$TargetGene_Retyp = factor(jhyt$TargetGene_Retyp, levels=c( "2", "3","4","5","6","7","8", "9", "10", "11", "12","13","14","15+"))
+jhyt$DiffMean_Squared = jhyt$DiffMean^2
+
+cor.test(jhyt$TargetGene, jhyt$DiffMean_Squared, method="spearman")
+
+jhut$TargetGene_Retyp = ifelse(jhut$TargetGene>14, "15+", as.character(jhut$TargetGene))
+jhut$TargetGene_Retyp = factor(jhut$TargetGene_Retyp, levels=c( "2", "3","4","5","6","7","8", "9", "10", "11", "12","13","14","15+"))
+
+cor.test(jhut$TargetGene, jhut$mean.Pair.H3K4me1, method="spearman")
+
+opi = ggboxplot(jhyt, x="TargetGene_Retyp", y ="DiffMean_Squared", color = "TargetGene_Retyp")
+opi = ggpar(opi, legend = "", xlab="#promoters in RRCs", ylab="Difference between RRC mean and Population mean")
+opi +stat_compare_means(method = "anova", label.y = 0.5) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                             ref.group = "2", method.args=list(alternative="less"))
+
+opi.var = ggboxplot(jhut, x="TargetGene_Retyp", y ="mean.Pair.H3K4me1", color = "TargetGene_Retyp")
+opi.var = ggpar(opi.var, legend="", xlab="#promoters in RRCs", ylab="Intra-RRC H3K4me1 Variance")
+opi.var +stat_compare_means(method = "anova", label.y = 0.5) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                 ref.group = "2", method.args=list(alternative="greater"))
+#########################################################################################
+#H3K4me3
+mean.H3K4me3.ABC.membership = aggregate(mean.Pair.H3K4me3~membership, AL2Genes.ABC, mean)
+
+mean.H3K4me3.ABC.membership$DiffMean = mean.H3K4me3.ABC.membership$mean.Pair.H3K4me3 - mean(AL2Genes.ABC$mean.Pair.H3K4me3, na.rm=T)
+jhyt = merge(nGenesbyRRCs.ABC,mean.H3K4me3.ABC.membership, by="membership")
+
+Var.H3K4me3.ABC.membership = aggregate(mean.Pair.H3K4me3~membership, AL2Genes.ABC, var)
+jhut = merge(nGenesbyRRCs.ABC,Var.H3K4me3.ABC.membership, by="membership")
+
+jhyt$TargetGene_Retyp = ifelse(jhyt$TargetGene>14, "15+", as.character(jhyt$TargetGene))
+jhyt$TargetGene_Retyp = factor(jhyt$TargetGene_Retyp, levels=c( "2", "3","4","5","6","7","8", "9", "10", "11", "12","13","14","15+"))
+jhyt$DiffMean_Squared = jhyt$DiffMean^2
+
+cor.test(jhyt$TargetGene, jhyt$DiffMean_Squared, method="spearman")
+
+jhut$TargetGene_Retyp = ifelse(jhut$TargetGene>14, "15+", as.character(jhut$TargetGene))
+jhut$TargetGene_Retyp = factor(jhut$TargetGene_Retyp, levels=c( "2", "3","4","5","6","7","8", "9", "10", "11", "12","13","14","15+"))
+
+cor.test(jhut$TargetGene, jhut$mean.Pair.H3K4me3, method="spearman")
+
+opi = ggboxplot(jhyt, x="TargetGene_Retyp", y ="DiffMean_Squared", color = "TargetGene_Retyp")
+opi = ggpar(opi, legend = "", xlab="#promoters in RRCs", ylab="Difference between RRC mean and Population mean")
+opi +stat_compare_means(method = "anova", label.y = 3) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                             ref.group = "2", method.args=list(alternative="less"))
+
+opi.var = ggboxplot(jhut, x="TargetGene_Retyp", y ="mean.Pair.H3K4me3", color = "TargetGene_Retyp")
+opi.var = ggpar(opi.var, legend="", xlab="#promoters in RRCs", ylab="Intra-RRC H3K4me3 Variance")
+opi.var +stat_compare_means(method = "anova", label.y = 3) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                 ref.group = "2", method.args=list(alternative="greater"))
+#########################################################################################
+#H3K27me3
+mean.H3K27me3.ABC.membership = aggregate(mean.Pair.H3K27me3~membership, AL2Genes.ABC, mean)
+
+mean.H3K27me3.ABC.membership$DiffMean = mean.H3K27me3.ABC.membership$mean.Pair.H3K27me3 - mean(AL2Genes.ABC$mean.Pair.H3K27me3, na.rm=T)
+jhyt = merge(nGenesbyRRCs.ABC,mean.H3K27me3.ABC.membership, by="membership")
+
+Var.H3K27me3.ABC.membership = aggregate(mean.Pair.H3K27me3~membership, AL2Genes.ABC, var)
+jhut = merge(nGenesbyRRCs.ABC,Var.H3K27me3.ABC.membership, by="membership")
+
+jhyt$TargetGene_Retyp = ifelse(jhyt$TargetGene>14, "15+", as.character(jhyt$TargetGene))
+jhyt$TargetGene_Retyp = factor(jhyt$TargetGene_Retyp, levels=c( "2", "3","4","5","6","7","8", "9", "10", "11", "12","13","14","15+"))
+jhyt$DiffMean_Squared = jhyt$DiffMean^2
+
+cor.test(jhyt$TargetGene, jhyt$DiffMean_Squared, method="spearman")
+
+jhut$TargetGene_Retyp = ifelse(jhut$TargetGene>14, "15+", as.character(jhut$TargetGene))
+jhut$TargetGene_Retyp = factor(jhut$TargetGene_Retyp, levels=c( "2", "3","4","5","6","7","8", "9", "10", "11", "12","13","14","15+"))
+
+cor.test(jhut$TargetGene, jhut$mean.Pair.H3K27me3, method="spearman")
+
+opi = ggboxplot(jhyt, x="TargetGene_Retyp", y ="DiffMean_Squared", color = "TargetGene_Retyp")
+opi = ggpar(opi, legend = "", xlab="#promoters in RRCs", ylab="Difference between RRC mean and Population mean")
+opi +stat_compare_means(method = "anova", label.y = 0.5) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                             ref.group = "2", method.args=list(alternative="less"))
+
+opi.var = ggboxplot(jhut, x="TargetGene_Retyp", y ="mean.Pair.H3K27me3", color = "TargetGene_Retyp")
+opi.var = ggpar(opi.var, legend="", xlab="#promoters in RRCs", ylab="Intra-RRC H3K27me3 Variance")
+opi.var +stat_compare_means(method = "anova", label.y = 0.5) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                 ref.group = "2", method.args=list(alternative="greater"))
+#########################################################################################
+#DNAse
+mean.DNAse.ABC.membership = aggregate(mean.Pair.DNAse~membership, AL2Genes.ABC, mean)
+
+mean.DNAse.ABC.membership$DiffMean = mean.DNAse.ABC.membership$mean.Pair.DNAse - mean(AL2Genes.ABC$mean.Pair.DNAse, na.rm=T)
+jhyt = merge(nGenesbyRRCs.ABC,mean.DNAse.ABC.membership, by="membership")
+
+Var.DNAse.ABC.membership = aggregate(mean.Pair.DNAse~membership, AL2Genes.ABC, var)
+jhut = merge(nGenesbyRRCs.ABC,Var.DNAse.ABC.membership, by="membership")
+
+jhyt$TargetGene_Retyp = ifelse(jhyt$TargetGene>14, "15+", as.character(jhyt$TargetGene))
+jhyt$TargetGene_Retyp = factor(jhyt$TargetGene_Retyp, levels=c( "2", "3","4","5","6","7","8", "9", "10", "11", "12","13","14","15+"))
+jhyt$DiffMean_Squared = jhyt$DiffMean^2
+
+cor.test(jhyt$TargetGene, jhyt$DiffMean_Squared, method="spearman")
+
+jhut$TargetGene_Retyp = ifelse(jhut$TargetGene>14, "15+", as.character(jhut$TargetGene))
+jhut$TargetGene_Retyp = factor(jhut$TargetGene_Retyp, levels=c( "2", "3","4","5","6","7","8", "9", "10", "11", "12","13","14","15+"))
+
+cor.test(jhut$TargetGene, jhut$mean.Pair.DNAse, method="spearman")
+
+opi = ggboxplot(jhyt, x="TargetGene_Retyp", y ="DiffMean_Squared", color = "TargetGene_Retyp")
+opi = ggpar(opi, legend = "", xlab="#promoters in RRCs", ylab="Difference between RRC mean and Population mean")
+opi +stat_compare_means(method = "anova", label.y = 0.5) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                             ref.group = "2", method.args=list(alternative="less"))
+
+opi.var = ggboxplot(jhut, x="TargetGene_Retyp", y ="mean.Pair.DNAse", color = "TargetGene_Retyp")
+opi.var = ggpar(opi.var, legend="", xlab="#promoters in RRCs", ylab="Intra-RRC DNAse Variance")
+opi.var +stat_compare_means(method = "anova", label.y = 0.5) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                 ref.group = "2", method.args=list(alternative="greater"))
+#########################################################################################
+#p300
+mean.p300.ABC.membership = aggregate(mean.Pair.p300~membership, AL2Genes.ABC, mean)
+
+mean.p300.ABC.membership$DiffMean = mean.p300.ABC.membership$mean.Pair.p300 - mean(AL2Genes.ABC$mean.Pair.p300, na.rm=T)
+jhyt = merge(nGenesbyRRCs.ABC,mean.p300.ABC.membership, by="membership")
+
+Var.p300.ABC.membership = aggregate(mean.Pair.p300~membership, AL2Genes.ABC, var)
+jhut = merge(nGenesbyRRCs.ABC,Var.p300.ABC.membership, by="membership")
+
+jhyt$TargetGene_Retyp = ifelse(jhyt$TargetGene>14, "15+", as.character(jhyt$TargetGene))
+jhyt$TargetGene_Retyp = factor(jhyt$TargetGene_Retyp, levels=c( "2", "3","4","5","6","7","8", "9", "10", "11", "12","13","14","15+"))
+jhyt$DiffMean_Squared = jhyt$DiffMean^2
+
+cor.test(jhyt$TargetGene, jhyt$DiffMean_Squared, method="spearman")
+
+jhut$TargetGene_Retyp = ifelse(jhut$TargetGene>14, "15+", as.character(jhut$TargetGene))
+jhut$TargetGene_Retyp = factor(jhut$TargetGene_Retyp, levels=c( "2", "3","4","5","6","7","8", "9", "10", "11", "12","13","14","15+"))
+
+cor.test(jhut$TargetGene, jhut$mean.Pair.p300, method="spearman")
+
+opi = ggboxplot(jhyt, x="TargetGene_Retyp", y ="DiffMean_Squared", color = "TargetGene_Retyp")
+opi = ggpar(opi, legend = "", xlab="Cluster Size", ylab="Difference between RRC mean and Population mean")
+opi +stat_compare_means(method = "anova", label.y = 2) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                             ref.group = "2", method.args=list(alternative="less"))
+
+opi.var = ggboxplot(jhut, x="TargetGene_Retyp", y ="mean.Pair.p300", color = "TargetGene_Retyp")
+opi.var = ggpar(opi.var, legend="", xlab="Cluster Size", ylab="Intra-RRC p300 Variance")
+opi.var +stat_compare_means(method = "anova", label.y = 2) +stat_compare_means(label = "p.signif", method = "t.test",
+                                                                                 ref.group = "2", method.args=list(alternative="greater"))
+
+################################################3
+#Detection de Phenomenes de compensation entre marques d'histones contradictoires 
+#Consideration des marques d'histone H3K27me3/H3K27ac/H3K4me1/H3K4me3/CTCF
+
+max.Expression.RRCs = aggregate(Expression~membership, AL2Genes.ABC, max)
+max.H3K27ac.RRCs = aggregate(mean.Pair.H3K27ac~membership, AL2Genes.ABC, max)
+max.CTCF.RRCs = aggregate(mean.Pair.CTCF~membership, AL2Genes.ABC, max)
+max.DNAse.RRCs = aggregate(mean.Pair.DNAse~membership, AL2Genes.ABC, max)
+max.H3K4me1.RRCs = aggregate(mean.Pair.H3K4me1~membership, AL2Genes.ABC, max)
+max.H3K4me3.RRCs = aggregate(mean.Pair.H3K4me3~membership, AL2Genes.ABC, max)
+max.H3K27me3.RRCs = aggregate(mean.Pair.H3K27me3~membership, AL2Genes.ABC, max)
+max.p300.RRCs = aggregate(mean.Pair.p300~membership, AL2Genes.ABC, max)
+
+Expr.H3K27me3.ABC = merge(max.Expression.RRCs, max.H3K27me3.RRCs, by="membership")
+H3K27ac.H3K27me3.ABC = merge(max.H3K27ac.RRCs, max.H3K27me3.RRCs, by="membership")
+H3K4me1.H3K27me3.ABC = merge(max.H3K4me1.RRCs, max.H3K27me3.RRCs, by="membership")
+H3K4me3.H3K27me3.ABC = merge(max.H3K4me3.RRCs, max.H3K27me3.RRCs, by="membership")
+H3K27ac.CTCF.ABC = merge(max.H3K27ac.RRCs, max.CTCF.RRCs,by="membership")
+H3K27me3.CTCF.ABC = merge(max.H3K27me3.RRCs, max.CTCF.RRCs,by="membership")
+H3K4me1.CTCF.ABC = merge(max.H3K4me1.RRCs,max.CTCF.RRCs, by="membership")
+H3K4me3.CTCF.ABC = merge(max.H3K4me3.RRCs,max.CTCF.RRCs, by="membership")
+p300.CTCF.ABC = merge(max.p300.RRCs,max.CTCF.RRCs, by="membership")
+H3K27me3.p300.ABC = merge(max.H3K27me3.RRCs,max.p300.RRCs, by="membership")
+
+comp = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  return(cor(Expr.H3K27me3.ABC[Expr.H3K27me3.ABC$membership%in%subset.membership.ABC,"mean.Pair.H3K27me3"],Expr.H3K27me3.ABC[Expr.H3K27me3.ABC$membership%in%subset.membership.ABC,"Expression"]))
+  
+})
+
+comp= data.frame(comp)
+colnames(comp) = "COR"
+comp$Variables = "Expression_H3K27me3"
+comp$N = sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25]
+
+
+comp1 = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  return(cor(H3K27ac.H3K27me3.ABC[H3K27ac.H3K27me3.ABC$membership%in%subset.membership.ABC,"mean.Pair.H3K27me3"],H3K27ac.H3K27me3.ABC[H3K27ac.H3K27me3.ABC$membership%in%subset.membership.ABC,"mean.Pair.H3K27ac"]))
+  
+})
+
+comp1= data.frame(comp1)
+colnames(comp1) = "COR"
+comp1$Variables = "H3K27ac_H3K27me3"
+comp1$N = sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25]
+
+comp2 = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  return(cor(H3K4me1.H3K27me3.ABC[H3K4me1.H3K27me3.ABC$membership%in%subset.membership.ABC,"mean.Pair.H3K27me3"],H3K4me1.H3K27me3.ABC[H3K4me1.H3K27me3.ABC$membership%in%subset.membership.ABC,"mean.Pair.H3K4me1"]))
+  
+})
+comp2= data.frame(comp2)
+colnames(comp2) = "COR"
+comp2$Variables = "H3K4me1_H3K27me3"
+comp2$N = sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25]
+
+comp3 = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  return(cor(H3K4me3.H3K27me3.ABC[H3K4me3.H3K27me3.ABC$membership%in%subset.membership.ABC,"mean.Pair.H3K27me3"],H3K4me3.H3K27me3.ABC[H3K4me3.H3K27me3.ABC$membership%in%subset.membership.ABC,"mean.Pair.H3K4me3"]))
+  
+})
+comp3= data.frame(comp3)
+colnames(comp3) = "COR"
+comp3$Variables = "H3K4me3_H3K27me3"
+comp3$N = sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25]
+
+comp4 = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  return(cor(H3K27ac.CTCF.ABC[H3K27ac.CTCF.ABC$membership%in%subset.membership.ABC,"mean.Pair.CTCF"],H3K27ac.CTCF.ABC[H3K27ac.CTCF.ABC$membership%in%subset.membership.ABC,"mean.Pair.H3K27ac"]))
+  
+})
+comp4= data.frame(comp4)
+colnames(comp4) = "COR"
+comp4$Variables = "CTCF_H3K27ac"
+comp4$N = sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25]
+
+comp5 = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  return(cor(H3K27me3.CTCF.ABC[H3K27me3.CTCF.ABC$membership%in%subset.membership.ABC,"mean.Pair.H3K27me3"],H3K27me3.CTCF.ABC[H3K27me3.CTCF.ABC$membership%in%subset.membership.ABC,"mean.Pair.CTCF"]))
+  
+})
+comp5= data.frame(comp5)
+colnames(comp5) = "COR"
+comp5$Variables = "CTCF_H3K27me3"
+comp5$N = sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25]
+
+comp6 = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  return(cor(H3K4me1.CTCF.ABC[H3K4me1.CTCF.ABC$membership%in%subset.membership.ABC,"mean.Pair.H3K4me1"],H3K4me1.CTCF.ABC[H3K4me1.CTCF.ABC$membership%in%subset.membership.ABC,"mean.Pair.CTCF"]))
+  
+})
+comp6= data.frame(comp6)
+colnames(comp6) = "COR"
+comp6$Variables = "CTCF_H3K4me1"
+comp6$N = sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25]
+
+comp7 = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  return(cor(H3K4me3.CTCF.ABC[H3K4me3.CTCF.ABC$membership%in%subset.membership.ABC,"mean.Pair.H3K4me3"],H3K4me3.CTCF.ABC[H3K4me3.CTCF.ABC$membership%in%subset.membership.ABC,"mean.Pair.CTCF"]))
+  
+})
+comp7= data.frame(comp7)
+colnames(comp7) = "COR"
+comp7$Variables = "CTCF_H3K4me3"
+comp7$N = sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25]
+
+comp8 = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  return(cor(p300.CTCF.ABC[p300.CTCF.ABC$membership%in%subset.membership.ABC,"mean.Pair.p300"],p300.CTCF.ABC[p300.CTCF.ABC$membership%in%subset.membership.ABC,"mean.Pair.CTCF"]))
+  
+})
+
+comp8= data.frame(comp8)
+colnames(comp8) = "COR"
+comp8$Variables = "CTCF_p300"
+comp8$N = sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25]
+
+comp9 = sapply(sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25], function(i){
+  subset.membership.ABC = nGenesbyRRCs.ABC[nGenesbyRRCs.ABC$TargetGene<=i,"membership"]
+  return(cor(H3K27me3.p300.ABC[H3K27me3.p300.ABC$membership%in%subset.membership.ABC,"mean.Pair.p300"],H3K27me3.p300.ABC[H3K27me3.p300.ABC$membership%in%subset.membership.ABC,"mean.Pair.H3K27me3"]))
+  
+})
+
+comp9= data.frame(comp9)
+colnames(comp9) = "COR"
+comp9$Variables = "H3K27me3_p300"
+comp9$N = sort(unique(nGenesbyRRCs.ABC$TargetGene))[1:25]
+
+
+comp.tt = rbind(comp,comp1,comp2,comp3,comp4,comp9,comp5,comp6,comp7,comp8)
+
+ggl = ggline(comp.tt, x="N", y="COR", color="Variables", plot_type = "l")
+ggl = ggpar(ggl, legend.title = "Association", xlab="#promoters in RRC", ylab="Correlation")
+ggl
+
+max.Expression.Rao = aggregate(Expression~compo.Rao.membership, AL2Genes.Rao, max)
+max.H3K27ac.Rao = aggregate(mean.Pair.H3K27ac~compo.Rao.membership, AL2Genes.Rao, max)
+max.CTCF.Rao = aggregate(mean.Pair.CTCF~compo.Rao.membership, AL2Genes.Rao, max)
+max.DNAse.Rao = aggregate(mean.Pair.DNAse~compo.Rao.membership, AL2Genes.Rao, max)
+max.H3K4me1.Rao = aggregate(mean.Pair.H3K4me1~compo.Rao.membership, AL2Genes.Rao, max)
+max.H3K4me3.Rao = aggregate(mean.Pair.H3K4me3~compo.Rao.membership, AL2Genes.Rao, max)
+max.H3K27me3.Rao = aggregate(mean.Pair.H3K27me3~compo.Rao.membership, AL2Genes.Rao, max)
+max.p300.Rao = aggregate(mean.Pair.p300~compo.Rao.membership, AL2Genes.Rao, max)
+
+Expre.H3K27me3.Rao = merge(max.Expression.Rao, max.H3K27me3.Rao, by="compo.Rao.membership")
+H3K27ac.H3K27me3.Rao = merge(max.H3K27ac.Rao, max.H3K27me3.Rao, by="compo.Rao.membership")
+H3K4me1.H3K27me3.Rao = merge(max.H3K4me1.Rao, max.H3K27me3.Rao, by="compo.Rao.membership")
+H3K4me3.H3K27me3.Rao = merge(max.H3K4me3.Rao, max.H3K27me3.Rao, by="compo.Rao.membership")
+H3K27ac.CTCF.Rao = merge(max.H3K27ac.Rao, max.CTCF.Rao,by="compo.Rao.membership")
+H3K27me3.CTCF.Rao = merge(max.H3K27me3.Rao, max.CTCF.Rao,by="compo.Rao.membership")
+H3K4me1.CTCF.Rao = merge(max.H3K4me1.Rao,max.CTCF.Rao, by="compo.Rao.membership")
+H3K4me3.CTCF.Rao = merge(max.H3K4me3.Rao,max.CTCF.Rao, by="compo.Rao.membership")
+p300.CTCF.Rao = merge(max.p300.Rao,max.CTCF.Rao, by="compo.Rao.membership")
+H3K27me3.p300.Rao = merge(max.H3K27me3.Rao,max.p300.Rao, by="compo.Rao.membership")
+
+comp.Rao = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6], function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  return(cor(Expre.H3K27me3.Rao[Expre.H3K27me3.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.H3K27me3"],Expre.H3K27me3.Rao[Expre.H3K27me3.Rao$compo.Rao.membership%in%subset.membership.Rao,"Expression"]))
+  
+})
+
+comp.Rao= data.frame(comp.Rao)
+colnames(comp.Rao) = "COR"
+comp.Rao$Variables = "Expression_H3K27me3"
+comp.Rao$N = sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6]
+
+comp1.Rao = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6], function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  return(cor(H3K27ac.H3K27me3.Rao[H3K27ac.H3K27me3.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.H3K27me3"],H3K27ac.H3K27me3.Rao[H3K27ac.H3K27me3.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.H3K27ac"]))
+  
+})
+
+comp1.Rao= data.frame(comp1.Rao)
+colnames(comp1.Rao) = "COR"
+comp1.Rao$Variables = "H3K27ac_H3K27me3"
+comp1.Rao$N = sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6]
+
+comp2.Rao = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6], function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  return(cor(H3K4me1.H3K27me3.Rao[H3K4me1.H3K27me3.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.H3K27me3"],H3K4me1.H3K27me3.Rao[H3K4me1.H3K27me3.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.H3K4me1"]))
+  
+})
+
+comp2.Rao= data.frame(comp2.Rao)
+colnames(comp2.Rao) = "COR"
+comp2.Rao$Variables = "H3K4me1_H3K27me3"
+comp2.Rao$N = sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6]
+
+comp3.Rao = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6], function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  return(cor(H3K4me3.H3K27me3.Rao[H3K4me3.H3K27me3.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.H3K27me3"],H3K4me3.H3K27me3.Rao[H3K4me3.H3K27me3.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.H3K4me3"]))
+  
+})
+comp3.Rao= data.frame(comp3.Rao)
+colnames(comp3.Rao) = "COR"
+comp3.Rao$Variables = "H3K4me3_H3K27me3"
+comp3.Rao$N = sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6]
+
+comp4.Rao = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6], function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  return(cor(H3K27ac.CTCF.Rao[H3K27ac.CTCF.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.CTCF"],H3K27ac.CTCF.Rao[H3K27ac.CTCF.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.H3K27ac"]))
+  
+})
+comp4.Rao= data.frame(comp4.Rao)
+colnames(comp4.Rao) = "COR"
+comp4.Rao$Variables = "CTCF_H3K27ac"
+comp4.Rao$N = sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6]
+
+comp5.Rao = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6], function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  return(cor(H3K27me3.CTCF.Rao[H3K27me3.CTCF.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.H3K27me3"],H3K27me3.CTCF.Rao[H3K27me3.CTCF.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.CTCF"]))
+  
+})
+comp5.Rao= data.frame(comp5.Rao)
+colnames(comp5.Rao) = "COR"
+comp5.Rao$Variables = "CTCF_H3K27me3"
+comp5.Rao$N = sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6]
+
+comp6.Rao = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6], function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  return(cor(H3K4me1.CTCF.Rao[H3K4me1.CTCF.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.H3K4me1"],H3K4me1.CTCF.Rao[H3K4me1.CTCF.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.CTCF"]))
+  
+})
+comp6.Rao= data.frame(comp6.Rao)
+colnames(comp6.Rao) = "COR"
+comp6.Rao$Variables = "CTCF_H3K4me1"
+comp6.Rao$N = sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6]
+
+comp7.Rao = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6], function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  return(cor(H3K4me3.CTCF.Rao[H3K4me3.CTCF.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.H3K4me3"],H3K4me3.CTCF.Rao[H3K4me3.CTCF.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.CTCF"]))
+  
+})
+comp7.Rao= data.frame(comp7.Rao)
+colnames(comp7.Rao) = "COR"
+comp7.Rao$Variables = "CTCF_H3K4me3"
+comp7.Rao$N = sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6]
+
+comp8.Rao = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6], function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  return(cor(p300.CTCF.Rao[p300.CTCF.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.p300"],p300.CTCF.Rao[p300.CTCF.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.CTCF"]))
+  
+})
+
+comp8.Rao= data.frame(comp8.Rao)
+colnames(comp8.Rao) = "COR"
+comp8.Rao$Variables = "CTCF_p300"
+comp8.Rao$N = sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6]
+
+comp9.Rao = sapply(sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6], function(i){
+  subset.membership.Rao = nGenesbyRRCs.Rao[nGenesbyRRCs.Rao$geneSymbol.x<=i,"compo.Rao.membership"]
+  return(cor(H3K27me3.p300.Rao[H3K27me3.p300.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.p300"],H3K27me3.p300.Rao[H3K27me3.p300.Rao$compo.Rao.membership%in%subset.membership.Rao,"mean.Pair.H3K27me3"]))
+  
+})
+
+comp9.Rao= data.frame(comp9.Rao)
+colnames(comp9.Rao) = "COR"
+comp9.Rao$Variables = "H3K27me3_p300"
+comp9.Rao$N = sort(unique(nGenesbyRRCs.Rao$geneSymbol.x))[1:6]
+
+
+comp.tt.Rao = rbind(comp.Rao, comp1.Rao,comp2.Rao,comp3.Rao,comp4.Rao,comp9.Rao,comp5.Rao,comp6.Rao,comp7.Rao, comp8.Rao)
+ggl.Rao = ggline(comp.tt.Rao, x="N",y="COR",plot_type="l",color="Variables")
+ggl.Rao = ggpar(ggl.Rao, legend.title = "Association", xlab="#promoters in RRC", ylab="Correlation")
+
+
+max.Expression.DNAse = aggregate(Expression~compo.DNAse.membership, AL2Genes.DNAse, max)
+max.H3K27ac.DNAse = aggregate(mean.Pair.H3K27ac~compo.DNAse.membership, AL2Genes.DNAse, max)
+max.CTCF.DNAse = aggregate(mean.Pair.CTCF~compo.DNAse.membership, AL2Genes.DNAse, max)
+max.DNAse.DNAse = aggregate(mean.Pair.DNAse~compo.DNAse.membership, AL2Genes.DNAse, max)
+max.H3K4me1.DNAse = aggregate(mean.Pair.H3K4me1~compo.DNAse.membership, AL2Genes.DNAse, max)
+max.H3K4me3.DNAse = aggregate(mean.Pair.H3K4me3~compo.DNAse.membership, AL2Genes.DNAse, max)
+max.H3K27me3.DNAse = aggregate(mean.Pair.H3K27me3~compo.DNAse.membership, AL2Genes.DNAse, max)
+max.p300.DNAse = aggregate(mean.Pair.p300~compo.DNAse.membership, AL2Genes.DNAse, max)
+
+Expr.H3K27me3.DNAse = merge(max.Expression.DNAse, max.H3K27me3.DNAse, by="compo.DNAse.membership")
+H3K27ac.H3K27me3.DNAse = merge(max.H3K27ac.DNAse, max.H3K27me3.DNAse, by="compo.DNAse.membership")
+H3K4me1.H3K27me3.DNAse = merge(max.H3K4me1.DNAse, max.H3K27me3.DNAse, by="compo.DNAse.membership")
+H3K4me3.H3K27me3.DNAse = merge(max.H3K4me3.DNAse, max.H3K27me3.DNAse, by="compo.DNAse.membership")
+H3K27ac.CTCF.DNAse = merge(max.H3K27ac.DNAse, max.CTCF.DNAse,by="compo.DNAse.membership")
+H3K27me3.CTCF.DNAse = merge(max.H3K27me3.DNAse, max.CTCF.DNAse,by="compo.DNAse.membership")
+H3K4me1.CTCF.DNAse = merge(max.H3K4me1.DNAse,max.CTCF.DNAse, by="compo.DNAse.membership")
+H3K4me3.CTCF.DNAse = merge(max.H3K4me3.DNAse,max.CTCF.DNAse, by="compo.DNAse.membership")
+p300.CTCF.DNAse = merge(max.p300.DNAse,max.CTCF.DNAse, by="compo.DNAse.membership")
+H3K27me3.p300.DNAse = merge(max.H3K27me3.DNAse,max.p300.DNAse, by="compo.DNAse.membership")
+
+
+comp.DNAse = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  return(cor(Expr.H3K27me3.DNAse[Expr.H3K27me3.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.H3K27me3"],Expr.H3K27me3.DNAse[Expr.H3K27me3.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"Expression"]))
+  
+})
+
+comp.DNAse= data.frame(comp.DNAse)
+colnames(comp.DNAse) = "COR"
+comp.DNAse$Variables = "Expression_H3K27me3"
+comp.DNAse$N = sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y))
+
+
+comp1.DNAse = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  return(cor(H3K27ac.H3K27me3.DNAse[H3K27ac.H3K27me3.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.H3K27me3"],H3K27ac.H3K27me3.DNAse[H3K27ac.H3K27me3.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.H3K27ac"]))
+  
+})
+
+comp1.DNAse= data.frame(comp1.DNAse)
+colnames(comp1.DNAse) = "COR"
+comp1.DNAse$Variables = "H3K27ac_H3K27me3"
+comp1.DNAse$N = sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y))
+
+comp2.DNAse = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  return(cor(H3K4me1.H3K27me3.DNAse[H3K4me1.H3K27me3.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.H3K27me3"],H3K4me1.H3K27me3.DNAse[H3K4me1.H3K27me3.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.H3K4me1"]))
+  
+})
+
+comp2.DNAse= data.frame(comp2.DNAse)
+colnames(comp2.DNAse) = "COR"
+comp2.DNAse$Variables = "H3K4me1_H3K27me3"
+comp2.DNAse$N = sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y))
+
+comp3.DNAse = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  return(cor(H3K4me3.H3K27me3.DNAse[H3K4me3.H3K27me3.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.H3K27me3"],H3K4me3.H3K27me3.DNAse[H3K4me3.H3K27me3.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.H3K4me3"]))
+  
+})
+comp3.DNAse= data.frame(comp3.DNAse)
+colnames(comp3.DNAse) = "COR"
+comp3.DNAse$Variables = "H3K4me3_H3K27me3"
+comp3.DNAse$N = sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y))
+
+comp4.DNAse = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  return(cor(H3K27ac.CTCF.DNAse[H3K27ac.CTCF.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.CTCF"],H3K27ac.CTCF.DNAse[H3K27ac.CTCF.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.H3K27ac"]))
+  
+})
+comp4.DNAse= data.frame(comp4.DNAse)
+colnames(comp4.DNAse) = "COR"
+comp4.DNAse$Variables = "CTCF_H3K27ac"
+comp4.DNAse$N = sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y))
+
+comp5.DNAse = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  return(cor(H3K27me3.CTCF.DNAse[H3K27me3.CTCF.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.H3K27me3"],H3K27me3.CTCF.DNAse[H3K27me3.CTCF.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.CTCF"]))
+  
+})
+comp5.DNAse= data.frame(comp5.DNAse)
+colnames(comp5.DNAse) = "COR"
+comp5.DNAse$Variables = "CTCF_H3K27me3"
+comp5.DNAse$N = sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y))
+
+comp6.DNAse = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  return(cor(H3K4me1.CTCF.DNAse[H3K4me1.CTCF.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.H3K4me1"],H3K4me1.CTCF.DNAse[H3K4me1.CTCF.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.CTCF"]))
+  
+})
+comp6.DNAse= data.frame(comp6.DNAse)
+colnames(comp6.DNAse) = "COR"
+comp6.DNAse$Variables = "CTCF_H3K4me1"
+comp6.DNAse$N = sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y))
+
+comp7.DNAse = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  return(cor(H3K4me3.CTCF.DNAse[H3K4me3.CTCF.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.H3K4me3"],H3K4me3.CTCF.DNAse[H3K4me3.CTCF.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.CTCF"]))
+  
+})
+comp7.DNAse= data.frame(comp7.DNAse)
+colnames(comp7.DNAse) = "COR"
+comp7.DNAse$Variables = "CTCF_H3K4me3"
+comp7.DNAse$N = sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y))
+
+comp8.DNAse = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  return(cor(p300.CTCF.DNAse[p300.CTCF.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.p300"],p300.CTCF.DNAse[p300.CTCF.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.CTCF"]))
+  
+})
+
+comp8.DNAse= data.frame(comp8.DNAse)
+colnames(comp8.DNAse) = "COR"
+comp8.DNAse$Variables = "CTCF_p300"
+comp8.DNAse$N = sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y))
+
+comp9.DNAse = sapply(sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y)), function(i){
+  subset.membership.DNAse = nGenesbyRRCs.DNAse[nGenesbyRRCs.DNAse$geneSymbol.y<=i,"compo.DNAse.membership"]
+  return(cor(H3K27me3.p300.DNAse[H3K27me3.p300.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.p300"],H3K27me3.p300.DNAse[H3K27me3.p300.DNAse$compo.DNAse.membership%in%subset.membership.DNAse,"mean.Pair.H3K27me3"]))
+  
+})
+
+comp9.DNAse= data.frame(comp9.DNAse)
+colnames(comp9.DNAse) = "COR"
+comp9.DNAse$Variables = "H3K27me3_p300"
+comp9.DNAse$N = sort(unique(nGenesbyRRCs.DNAse$geneSymbol.y))
+
+comp.tt.DNAse = rbind(comp.DNAse, comp1.DNAse,comp2.DNAse,comp3.DNAse,comp9.DNAse,comp4.DNAse,comp5.DNAse,comp6.DNAse,comp7.DNAse,comp8.DNAse)
+ggl.DNAse = ggline(comp.tt.DNAse, x="N",y="COR",plot_type="l",color="Variables")
+ggl.DNAse = ggpar(ggl.DNAse, legend.title = "Association", xlab="#promoters in RRC", ylab="Correlation")
+
+
+ggarrange(ggl,ggl.Rao, ggl.DNAse, labels=c("A","B","C"), nrow=3, ncol=1)
