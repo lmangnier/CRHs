@@ -1,4 +1,5 @@
 library(rlist)
+library(rCGH)
 
 process.ABC = function(ABC.inputFile) {
   #Function taking in input the EnhancerPredictions.txt output file from Score-ABC software
@@ -151,10 +152,12 @@ coverage.By.Crn = function(graph, df, method="ABC") {
     return(list("clusters"=GRanges.cluster, "data.frame"=df))
 }
 
-
-.make.GRanges.compartments = function(PC.by.locus, resolution=1000000){
-  #Function which creates GRanges for Compartments analysis
-  #by default the 3 first PC are include
+#' @description Function which creates GRanges for Compartments analysis by chromosome
+#' by default the 3 first PC are included
+#' @param PC.by.locus Name of the file containing the chromosome, bin and values of the 3 first principal components
+#' @param resolution Width of a bin in nucleotides
+#' @param chrl list of the chromosome lengths in nucleotides 
+.make.GRanges.compartments = function(PC.by.locus, resolution=1000000,chrl){
   chroms = paste0("chr",1:22)
   PC.compartments = read.table(PC.by.locus, header=F)
   colnames(PC.compartments) = c("chr", "bin", "PC1", "PC2", "PC3")
@@ -166,8 +169,11 @@ coverage.By.Crn = function(graph, df, method="ABC") {
   for(chr in chroms){
     PC.compartments.tmp = PC.compartments.WX[PC.compartments.WX$chr ==chr,]
     
-    windows = seq(0, resolution*(nrow(PC.compartments.tmp)), resolution)
-    start.stop = data.frame(cbind(windows[-length(windows)], windows[-1]))
+#    windows = seq(0, resolution*(nrow(PC.compartments.tmp)), resolution)
+	windows = c(0,PC.compartments.tmp$bin*resolution)
+	# On s'assure que le dernier intervalle ne dépasse pas la fin du chromosome
+	if (!missing(chrl)) windows[length(windows)] = min(windows[length(windows)],chrl[[chr]])
+    start.stop = data.frame(cbind(windows[-length(windows)]+1, windows[-1]))
     colnames(start.stop) = c("start", "stop")
     
     list.PC.compartments[[chr]] = cbind(PC.compartments.tmp, start.stop)
@@ -182,24 +188,175 @@ coverage.By.Crn = function(graph, df, method="ABC") {
   return(GRanges.PC)
 }
 
-define.active.compartments = function(PC.by.locus,resolution=1000000 ,genes, corByChr = TRUE){
-  GRanges.PC = .make.GRanges.compartments(PC.by.locus)
+#' @description Function which creates GRanges for Compartments analysis by chromosome arm
+#' by default the 3 first PC are included
+#' @param PC.by.locus Name of the file containing the chromosome, bin and values of the 3 first principal components
+#' @param resolution Width of a bin in nucleotides  
+.make.GRanges.compartments.arms = function(PC.by.locus, resolution=1000000){
+  chroms = paste0("chr",1:22)
+  PC.compartments = read.table(PC.by.locus, header=F)
+  colnames(PC.compartments) = c("chr", "bin", "PC1", "PC2", "PC3")
+    
+  list.PC.compartments = list()
+  
+  for(chr in 1:22){
+    PC.compartments.tmp = PC.compartments[PC.compartments$chr ==chroms[chr],]
+	windows = c((PC.compartments.tmp$bin[1]-1),PC.compartments.tmp$bin)*resolution
+
+	# Bras p (s'il y en a un)
+	if (PC.compartments.tmp$bin[1]*resolution < hg19$centromerStart[chr])
+	{
+	bras = paste0(chroms[chr],"p")    
+	# On s'assure que le dernier intervalle ne dépasse pas le début du centromère
+	windows.p = c(windows[windows<hg19$centromerStart[chr]],hg19$centromerStart[chr])
+    start.stop = data.frame(cbind(windows.p[-length(windows.p)]+1, windows.p[-1]))
+    colnames(start.stop) = c("start", "stop")
+    # On s'assure que le premier intervalle du bras q démarre après la fin du centromère et que le dernier intervalle ne dépasse pas la fin du chromosome
+	windows.q = pmin(c(max(hg19$centromerEnd[chr],min(windows[windows>hg19$centromerEnd[chr]])-resolution)+1,windows[windows>hg19$centromerEnd[chr]]),hg19$length[chr])
+    
+    list.PC.compartments[[bras]] = cbind(bras,PC.compartments.tmp[1:nrow(start.stop),], start.stop)
+    }
+    # On s'assure que le premier intervalle démarre après la fin du centromère et que le dernier intervalle ne dépasse pas la fin du chromosome
+	else windows.q = pmin(windows[windows>hg19$centromerEnd[chr]],hg19$length[chr])
+    # Bras q
+	bras = paste0(chroms[chr],"q")    
+    start.stop = data.frame(cbind(windows.q[-length(windows.q)]+1, windows.q[-1]))
+    colnames(start.stop) = c("start", "stop")
+    list.PC.compartments[[bras]] = cbind(bras,PC.compartments.tmp[(PC.compartments.tmp$bin-1)*resolution>=hg19$centromerEnd[chr],], start.stop)
+  }
+  
+  PC.compartments.analyse = do.call(rbind, list.PC.compartments)
+  PC.compartments.analyse[,3:5] = PC.compartments.analyse[,3:5]*-1
+  
+  GRanges.PC= GRanges(seqnames = PC.compartments.analyse$chr, ranges=IRanges(start = PC.compartments.analyse$start,end =PC.compartments.analyse$stop,names=paste0("bin", 1:nrow(PC.compartments.analyse))),bras=PC.compartments.analyse$bras,
+                           PC1=PC.compartments.analyse$PC1, PC2=PC.compartments.analyse$PC2, PC3=PC.compartments.analyse$PC3)
+  
+  return(GRanges.PC)
+}
+
+# The compute_GCcontent function is taken from the Bioconductor package gcapc
+compute_GCcontent = function(region,genome){
+    seqs <- getSeq(genome,region) # slow
+    gcpos <- startIndex(vmatchPattern("S", seqs, fixed=F))
+    npos <- startIndex(vmatchPattern("N", seqs, fixed=T))
+    round((sapply(gcpos,length) - sapply(npos,length))/sapply(seqs,length),3)
+}
+
+#' @param GRanges.PC GRanges object with the 3 first principal components and the GC content for each bin of the genome
+#' @param corByChr boolean: if TRUE, the Pearson correlation between GC content and each of the 3 first PCs is computed for each chromosome
+define.active.compartments.GC = function(GRanges.PC, corByChr = TRUE){
+
+  df.PC = data.frame(GRanges.PC)
+
+    if(corByChr){
+    cor.PC1.genes = ddply(df.PC, .(seqnames), summarise, "corr" = cor(PC1, gc, method = "pearson"))
+    cor.PC2.genes = ddply(df.PC, .(seqnames), summarise, "corr" = cor(PC2, gc, method = "pearson"))
+    cor.PC3.genes = ddply(df.PC, .(seqnames), summarise, "corr" = cor(PC3, gc, method = "pearson"))
+    
+    cor.gc.PC = merge(merge(cor.PC1.genes, cor.PC2.genes, by="seqnames"),cor.PC3.genes, by="seqnames")
+    colnames(cor.gc.PC) = c("chr", "COR.PC1.GC", "COR.PC2.GC", "COR.PC3.GC")
+    
+    print(cor.gc.PC)
+  }
+  return(cor.gc.PC)
+}
+
+#' @param GRanges.PC GRanges object with the 3 first principal components and the GC content for each bin of the genome
+#' @param corByChr boolean: if TRUE, the Pearson correlation between GC content and each of the 3 first PCs is computed for each chromosome arm
+define.active.compartments.arms.GC = function(GRanges.PC, corByChr = TRUE){
+
+  df.PC = data.frame(GRanges.PC)
+
+    if(corByChr){
+    cor.PC1.genes = ddply(df.PC, .(bras), summarise, "corr" = cor(PC1, gc, method = "pearson"))
+    cor.PC2.genes = ddply(df.PC, .(bras), summarise, "corr" = cor(PC2, gc, method = "pearson"))
+    cor.PC3.genes = ddply(df.PC, .(bras), summarise, "corr" = cor(PC3, gc, method = "pearson"))
+    
+    cor.gc.PC = merge(merge(cor.PC1.genes, cor.PC2.genes, by="bras"),cor.PC3.genes, by="bras")
+    colnames(cor.gc.PC) = c("chr", "COR.PC1.GC", "COR.PC2.GC", "COR.PC3.GC")
+    
+    print(cor.gc.PC)
+  }
+  return(cor.gc.PC)
+}
+
+#' @param PC.by.locus Name of the file containing the chromosome, bin and values of the 3 first principal components
+#' @param resolution Width of a bin in nucleotides
+#' @param genome Name of the human genome build
+#' @param genes GRanges object with the coordinates of genes in the selected human genome build
+#' @param corByChr boolean: if TRUE, the Pearson correlation between gene content and each of the 3 first PCs is computed for each chromosome arm
+define.active.compartments.arms = function(PC.by.locus,resolution=1000000, genome="hg19", genes, corByChr = TRUE){
+  GRanges.PC = .make.GRanges.compartments.arms(PC.by.locus,resolution=resolution)
   
   GRanges.PC$ngenes = countOverlaps(GRanges.PC, genes)
+#  GRanges.PC$meth=method
   
   df.PC = data.frame(GRanges.PC)
   
-  corPC1Genes = cor(df.PC$PC1, df.PC$ngenes, method="spearman")
-  corPC2Genes = cor(df.PC$PC2, df.PC$ngenes, method="spearman")
-  corPC3Genes = cor(df.PC$PC3, df.PC$ngenes, method="spearman")
+  # corPC1Genes = cor(df.PC$PC1, df.PC$ngenes, method="spearman")
+  # corPC2Genes = cor(df.PC$PC2, df.PC$ngenes, method="spearman")
+  # corPC3Genes = cor(df.PC$PC3, df.PC$ngenes, method="spearman")
   
-  print(c(corPC1Genes, corPC2Genes,corPC3Genes))
-  indexMaxCor = which.max(c(corPC1Genes,corPC2Genes,corPC3Genes))
+  # print(c(corPC1Genes, corPC2Genes,corPC3Genes))
+  # indexMaxCor = which.max(c(corPC1Genes,corPC2Genes,corPC3Genes))
   
   if(corByChr){
-    cor.PC1.genes = ddply(df.PC, .(seqnames), summarise, "corr" = cor(PC1, ngenes, method = "spearman"))
-    cor.PC2.genes = ddply(df.PC, .(seqnames), summarise, "corr" = cor(PC2, ngenes, method = "spearman"))
-    cor.PC3.genes = ddply(df.PC, .(seqnames), summarise, "corr" = cor(PC3, ngenes, method = "spearman"))
+    cor.PC1.genes = ddply(df.PC, .(bras), summarise, "corr" = cor(PC1, ngenes, method = "pearson"))
+    cor.PC2.genes = ddply(df.PC, .(bras), summarise, "corr" = cor(PC2, ngenes, method = "pearson"))
+    cor.PC3.genes = ddply(df.PC, .(bras), summarise, "corr" = cor(PC3, ngenes, method = "pearson"))
+    
+    cor.densite.genes.PC = merge(merge(cor.PC1.genes, cor.PC2.genes, by="bras"),cor.PC3.genes, by="bras")
+    colnames(cor.densite.genes.PC) = c("chr", "COR.PC1.GDENSITE", "COR.PC2.GDENSITE", "COR.PC3.GDENSITE")
+    
+    print(cor.densite.genes.PC)
+  }
+  
+  #density.mediane.genes = median(df.PC$ngenes)
+  #GRanges.PC$Compartment = ifelse(GRanges.PC$ngenes>density.mediane.genes, "A", "B")
+
+  # mneg = mean(mcols(GRanges.PC)[mcols(GRanges.PC)[,indexMaxCor] < 0, "ngenes"])
+  # mpos = mean(mcols(GRanges.PC)[mcols(GRanges.PC)[,indexMaxCor] > 0, "ngenes"])
+  
+  # if(mneg > mpos){
+    # GRanges.PC[,indexMaxCor] =  GRanges.PC[,indexMaxCor] *-1
+    # GRanges.PC$Compartment = ifelse(mcols(GRanges.PC)[,indexMaxCor]>0, "A", "B")
+    # return(GRanges.PC[,c(indexMaxCor,5)])
+  # }
+  
+  # else{
+    # GRanges.PC$Compartment = ifelse(mcols(GRanges.PC)[,indexMaxCor]>0, "A", "B")
+    # return(GRanges.PC[,c(indexMaxCor,5)])
+  # }
+  return(cor.densite.genes.PC)
+}
+
+#' @param PC.by.locus Name of the file containing the chromosome, bin and values of the 3 first principal components
+#' @param resolution Width of a bin in nucleotides
+#' @param genome Name of the human genome build
+#' @param genes GRanges object with the coordinates of genes in the selected human genome build
+#' @param corByChr boolean: if TRUE, the Pearson correlation between gene content and each of the 3 first PCs is computed for each chromosome
+define.active.compartments = function(PC.by.locus,resolution=1000000, genome="hg19", genes, corByChr = TRUE){
+  genome <- getBSgenome(genome)
+  chrl = list()
+  for (chr in paste0("chr",1:22)) chrl[chr] = length(genome[[chr]])
+  GRanges.PC = .make.GRanges.compartments(PC.by.locus,resolution=resolution,chrl=chrl)
+  
+  GRanges.PC$ngenes = countOverlaps(GRanges.PC, genes)
+#  GRanges.PC$meth=method
+  
+  df.PC = data.frame(GRanges.PC)
+  
+  # corPC1Genes = cor(df.PC$PC1, df.PC$ngenes, method="spearman")
+  # corPC2Genes = cor(df.PC$PC2, df.PC$ngenes, method="spearman")
+  # corPC3Genes = cor(df.PC$PC3, df.PC$ngenes, method="spearman")
+  
+  # print(c(corPC1Genes, corPC2Genes,corPC3Genes))
+  # indexMaxCor = which.max(c(corPC1Genes,corPC2Genes,corPC3Genes))
+  
+  if(corByChr){
+    cor.PC1.genes = ddply(df.PC, .(seqnames), summarise, "corr" = cor(PC1, ngenes, method = "pearson"))
+    cor.PC2.genes = ddply(df.PC, .(seqnames), summarise, "corr" = cor(PC2, ngenes, method = "pearson"))
+    cor.PC3.genes = ddply(df.PC, .(seqnames), summarise, "corr" = cor(PC3, ngenes, method = "pearson"))
     
     cor.densite.genes.PC = merge(merge(cor.PC1.genes, cor.PC2.genes, by="seqnames"),cor.PC3.genes, by="seqnames")
     colnames(cor.densite.genes.PC) = c("chr", "COR.PC1.GDENSITE", "COR.PC2.GDENSITE", "COR.PC3.GDENSITE")
@@ -210,19 +367,20 @@ define.active.compartments = function(PC.by.locus,resolution=1000000 ,genes, cor
   #density.mediane.genes = median(df.PC$ngenes)
   #GRanges.PC$Compartment = ifelse(GRanges.PC$ngenes>density.mediane.genes, "A", "B")
 
-  mneg = mean(mcols(GRanges.PC)[mcols(GRanges.PC)[,indexMaxCor] < 0, "ngenes"])
-  mpos = mean(mcols(GRanges.PC)[mcols(GRanges.PC)[,indexMaxCor] > 0, "ngenes"])
+  # mneg = mean(mcols(GRanges.PC)[mcols(GRanges.PC)[,indexMaxCor] < 0, "ngenes"])
+  # mpos = mean(mcols(GRanges.PC)[mcols(GRanges.PC)[,indexMaxCor] > 0, "ngenes"])
   
-  if(mneg > mpos){
-    GRanges.PC[,indexMaxCor] =  GRanges.PC[,indexMaxCor] *-1
-    GRanges.PC$Compartment = ifelse(mcols(GRanges.PC)[,indexMaxCor]>0, "A", "B")
-    return(GRanges.PC[,c(indexMaxCor,5)])
-  }
+  # if(mneg > mpos){
+    # GRanges.PC[,indexMaxCor] =  GRanges.PC[,indexMaxCor] *-1
+    # GRanges.PC$Compartment = ifelse(mcols(GRanges.PC)[,indexMaxCor]>0, "A", "B")
+    # return(GRanges.PC[,c(indexMaxCor,5)])
+  # }
   
-  else{
-    GRanges.PC$Compartment = ifelse(mcols(GRanges.PC)[,indexMaxCor]>0, "A", "B")
-    return(GRanges.PC[,c(indexMaxCor,5)])
-  }
+  # else{
+    # GRanges.PC$Compartment = ifelse(mcols(GRanges.PC)[,indexMaxCor]>0, "A", "B")
+    # return(GRanges.PC[,c(indexMaxCor,5)])
+  # }
+  return(cor.densite.genes.PC)
 }
 
 CRNs.in.Acompartments = function(GRanges.CRNs, GRanges.PC, df){
