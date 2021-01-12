@@ -36,6 +36,8 @@ sum(abs(talog$COR.PC1.GDENSITE)>abs(talog$COR.PC2.GDENSITE) & abs(talog$COR.PC1.
 talogc = define.active.compartments.arms("PC_logoe/allchrarms_PC_logoe_clipped.500Kb.txt", resolution=500000, genes=genes.hg19)
 sum(abs(talogc$COR.PC1.GDENSITE)>abs(talogc$COR.PC2.GDENSITE) & abs(talogc$COR.PC1.GDENSITE)>abs(talogc$COR.PC3.GDENSITE))
 [1] 24
+# Appel avec corByChr = FALSE pour obtenir les compartiments AB
+talogc = define.active.compartments.arms("PC_logoe/allchrarms_PC_logoe_clipped.500Kb.txt", resolution=500000, genes=genes.hg19,corByChr = FALSE)
 
 # Calcul de corrélation avec le contenu GC
 
@@ -68,6 +70,8 @@ GRanges.500Kb.PCarms.logc$gc = GRanges.500Kb.PCarms$gc
 taloggcc = define.active.compartments.arms.GC(GRanges.500Kb.PCarms.logc)
 sum(abs(taloggcc$COR.PC1.GC)>abs(taloggcc$COR.PC2.GC) & abs(taloggcc$COR.PC1.GC)>abs(taloggcc$COR.PC3.GC))
 [1] 30
+# Appel avec corByChr = FALSE pour obtenir les compartiments AB
+taloggcc = define.active.compartments.arms.GC(GRanges.500Kb.PCarms.logc,corByChr = FALSE)
 
 GRanges.100Kb.PCarms.logc = .make.GRanges.compartments.arms("PC_logoe/allchrarms_PC_logoe_clipped.100Kb.txt",resolution=100000)
 GRanges.100Kb.PCarms.logc$gc = GRanges.100Kb.PCarms$gc

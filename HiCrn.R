@@ -267,17 +267,35 @@ define.active.compartments.arms.GC = function(GRanges.PC, corByChr = TRUE){
 
   df.PC = data.frame(GRanges.PC)
 
-    if(corByChr){
-    cor.PC1.genes = ddply(df.PC, .(bras), summarise, "corr" = cor(PC1, gc, method = "pearson"))
-    cor.PC2.genes = ddply(df.PC, .(bras), summarise, "corr" = cor(PC2, gc, method = "pearson"))
-    cor.PC3.genes = ddply(df.PC, .(bras), summarise, "corr" = cor(PC3, gc, method = "pearson"))
+    cor.PC1.gc = ddply(df.PC, .(bras), summarise, "corr" = cor(PC1, gc, method = "pearson"))
+    cor.PC2.gc = ddply(df.PC, .(bras), summarise, "corr" = cor(PC2, gc, method = "pearson"))
+    cor.PC3.gc = ddply(df.PC, .(bras), summarise, "corr" = cor(PC3, gc, method = "pearson"))
     
-    cor.gc.PC = merge(merge(cor.PC1.genes, cor.PC2.genes, by="bras"),cor.PC3.genes, by="bras")
+    if(corByChr){
+    cor.gc.PC = merge(merge(cor.PC1.gc, cor.PC2.gc, by="bras"),cor.PC3.gc, by="bras")
     colnames(cor.gc.PC) = c("chr", "COR.PC1.GC", "COR.PC2.GC", "COR.PC3.GC")
     
     print(cor.gc.PC)
+    return(cor.gc.PC)
   }
-  return(cor.gc.PC)
+  else
+  {
+  # moyenne du contenu GC dans les régions où la 1re composante principale est positive ou négative par bras de chromosome
+  mneg = tapply(mcols(GRanges.PC)[mcols(GRanges.PC)[,"PC1"] < 0, "gc"],mcols(GRanges.PC)[mcols(GRanges.PC)[,"PC1"] < 0,"bras"],mean)
+  mpos = tapply(mcols(GRanges.PC)[mcols(GRanges.PC)[,"PC1"] > 0, "gc"],mcols(GRanges.PC)[mcols(GRanges.PC)[,"PC1"] > 0,"bras"],mean)
+  # On répète les statistiques par bras de chromosome pour toutes les bins de chaque bras
+  bin.par.chr = table(mcols(GRanges.PC)[,"bras"])
+  mneg.rep = rep(mneg,bin.par.chr)
+  mpos.rep = rep(mpos,bin.par.chr)
+  cor.PC1.gc.rep = rep(cor.PC1.gc$corr,bin.par.chr)
+  cor.PC2.gc.rep = rep(cor.PC2.gc$corr,bin.par.chr)
+  cor.PC3.gc.rep = rep(cor.PC3.gc$corr,bin.par.chr)
+  # Si la 1re PC est la plus grande, on change le signe de la 1re composante principale s'il y a plus de gènes dans les régions où la 1re PC est négative, sinon on met à NA
+  GRanges.PC$PC1bonsigne =  ifelse(cor.PC1.gc.rep>cor.PC2.gc.rep & cor.PC1.gc.rep>cor.PC3.gc.rep, GRanges.PC$PC1 *ifelse(mneg.rep > mpos.rep,-1,1),NA)
+  GRanges.PC$Compartment = ifelse(GRanges.PC$PC1bonsigne>0, "A", "B")
+  return(GRanges.PC[,c("bras","Compartment")])
+  	
+  }
 }
 
 #' @param PC.by.locus Name of the file containing the chromosome, bin and values of the 3 first principal components
@@ -300,35 +318,38 @@ define.active.compartments.arms = function(PC.by.locus,resolution=1000000, genom
   # print(c(corPC1Genes, corPC2Genes,corPC3Genes))
   # indexMaxCor = which.max(c(corPC1Genes,corPC2Genes,corPC3Genes))
   
-  if(corByChr){
     cor.PC1.genes = ddply(df.PC, .(bras), summarise, "corr" = cor(PC1, ngenes, method = "pearson"))
     cor.PC2.genes = ddply(df.PC, .(bras), summarise, "corr" = cor(PC2, ngenes, method = "pearson"))
     cor.PC3.genes = ddply(df.PC, .(bras), summarise, "corr" = cor(PC3, ngenes, method = "pearson"))
     
+  if(corByChr){
     cor.densite.genes.PC = merge(merge(cor.PC1.genes, cor.PC2.genes, by="bras"),cor.PC3.genes, by="bras")
     colnames(cor.densite.genes.PC) = c("chr", "COR.PC1.GDENSITE", "COR.PC2.GDENSITE", "COR.PC3.GDENSITE")
     
     print(cor.densite.genes.PC)
+    return(cor.densite.genes.PC)
   }
-  
+  else {
   #density.mediane.genes = median(df.PC$ngenes)
   #GRanges.PC$Compartment = ifelse(GRanges.PC$ngenes>density.mediane.genes, "A", "B")
 
-  # mneg = mean(mcols(GRanges.PC)[mcols(GRanges.PC)[,indexMaxCor] < 0, "ngenes"])
-  # mpos = mean(mcols(GRanges.PC)[mcols(GRanges.PC)[,indexMaxCor] > 0, "ngenes"])
-  
-  # if(mneg > mpos){
-    # GRanges.PC[,indexMaxCor] =  GRanges.PC[,indexMaxCor] *-1
-    # GRanges.PC$Compartment = ifelse(mcols(GRanges.PC)[,indexMaxCor]>0, "A", "B")
-    # return(GRanges.PC[,c(indexMaxCor,5)])
-  # }
-  
-  # else{
-    # GRanges.PC$Compartment = ifelse(mcols(GRanges.PC)[,indexMaxCor]>0, "A", "B")
-    # return(GRanges.PC[,c(indexMaxCor,5)])
-  # }
-  return(cor.densite.genes.PC)
+  # moyenne du nombre de gènes dans les régions où la 1re composante principale est positive ou négative par bras de chromosome
+  mneg = tapply(mcols(GRanges.PC)[mcols(GRanges.PC)[,"PC1"] < 0, "ngenes"],mcols(GRanges.PC)[mcols(GRanges.PC)[,"PC1"] < 0,"bras"],mean)
+  mpos = tapply(mcols(GRanges.PC)[mcols(GRanges.PC)[,"PC1"] > 0, "ngenes"],mcols(GRanges.PC)[mcols(GRanges.PC)[,"PC1"] > 0,"bras"],mean)
+  # On répète les statistiques par bras de chromosome pour toutes les bins de chaque bras
+  bin.par.chr = table(mcols(GRanges.PC)[,"bras"])
+  mneg.rep = rep(mneg,bin.par.chr)
+  mpos.rep = rep(mpos,bin.par.chr)
+  cor.PC1.genes.rep = rep(cor.PC1.genes$corr,bin.par.chr)
+  cor.PC2.genes.rep = rep(cor.PC2.genes$corr,bin.par.chr)
+  cor.PC3.genes.rep = rep(cor.PC3.genes$corr,bin.par.chr)
+  # Si la 1re PC est la plus grande, on change le signe de la 1re composante principale s'il y a plus de gènes dans les régions où la 1re PC est négative, sinon on met à NA
+  GRanges.PC$PC1bonsigne =  ifelse(cor.PC1.genes.rep>cor.PC2.genes.rep & cor.PC1.genes.rep>cor.PC3.genes.rep, GRanges.PC$PC1 *ifelse(mneg.rep > mpos.rep,-1,1),NA)
+  GRanges.PC$Compartment = ifelse(GRanges.PC$PC1bonsigne>0, "A", "B")
+  return(GRanges.PC[,c("bras","Compartment")])
+  }
 }
+
 
 #' @param PC.by.locus Name of the file containing the chromosome, bin and values of the 3 first principal components
 #' @param resolution Width of a bin in nucleotides
