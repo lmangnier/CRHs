@@ -262,7 +262,7 @@ define.active.compartments.GC = function(GRanges.PC, corByChr = TRUE){
 }
 
 #' @param GRanges.PC GRanges object with the 3 first principal components and the GC content for each bin of the genome
-#' @param corByChr boolean: if TRUE, the Pearson correlation between GC content and each of the 3 first PCs is computed for each chromosome arm
+#' @param corByChr boolean: if TRUE, the Pearson correlation between GC content and each of the 3 first PCs is returned for each chromosome arm, if FALSE a GRanges object with a column "Compartment" indicating the compartment assigned to each bin is returned.
 define.active.compartments.arms.GC = function(GRanges.PC, corByChr = TRUE){
 
   df.PC = data.frame(GRanges.PC)
@@ -302,7 +302,7 @@ define.active.compartments.arms.GC = function(GRanges.PC, corByChr = TRUE){
 #' @param resolution Width of a bin in nucleotides
 #' @param genome Name of the human genome build
 #' @param genes GRanges object with the coordinates of genes in the selected human genome build
-#' @param corByChr boolean: if TRUE, the Pearson correlation between gene content and each of the 3 first PCs is computed for each chromosome arm
+#' @param corByChr boolean: if TRUE, the Pearson correlation between GC content and each of the 3 first PCs is returned for each chromosome arm, if FALSE a GRanges object with a column "Compartment" indicating the compartment assigned to each bin is returned.
 define.active.compartments.arms = function(PC.by.locus,resolution=1000000, genome="hg19", genes, corByChr = TRUE){
   GRanges.PC = .make.GRanges.compartments.arms(PC.by.locus,resolution=resolution)
   
