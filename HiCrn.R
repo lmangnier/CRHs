@@ -291,7 +291,7 @@ define.active.compartments.arms.GC = function(GRanges.PC, corByChr = TRUE){
   cor.PC2.gc.rep = rep(cor.PC2.gc$corr,bin.par.chr)
   cor.PC3.gc.rep = rep(cor.PC3.gc$corr,bin.par.chr)
   # Si la 1re PC est la plus grande, on change le signe de la 1re composante principale s'il y a plus de gènes dans les régions où la 1re PC est négative, sinon on met à NA
-  GRanges.PC$PC1bonsigne =  ifelse(cor.PC1.gc.rep>cor.PC2.gc.rep & cor.PC1.gc.rep>cor.PC3.gc.rep, GRanges.PC$PC1 *ifelse(mneg.rep > mpos.rep,-1,1),NA)
+  GRanges.PC$PC1bonsigne =  ifelse(abs(cor.PC1.gc.rep)>abs(cor.PC2.gc.rep) & abs(cor.PC1.gc.rep)>abs(cor.PC3.gc.rep), GRanges.PC$PC1 *ifelse(mneg.rep > mpos.rep,-1,1),NA)
   GRanges.PC$Compartment = ifelse(GRanges.PC$PC1bonsigne>0, "A", "B")
   return(GRanges.PC[,c("bras","Compartment")])
   	
@@ -344,7 +344,7 @@ define.active.compartments.arms = function(PC.by.locus,resolution=1000000, genom
   cor.PC2.genes.rep = rep(cor.PC2.genes$corr,bin.par.chr)
   cor.PC3.genes.rep = rep(cor.PC3.genes$corr,bin.par.chr)
   # Si la 1re PC est la plus grande, on change le signe de la 1re composante principale s'il y a plus de gènes dans les régions où la 1re PC est négative, sinon on met à NA
-  GRanges.PC$PC1bonsigne =  ifelse(cor.PC1.genes.rep>cor.PC2.genes.rep & cor.PC1.genes.rep>cor.PC3.genes.rep, GRanges.PC$PC1 *ifelse(mneg.rep > mpos.rep,-1,1),NA)
+  GRanges.PC$PC1bonsigne =  ifelse(abs(cor.PC1.genes.rep)>abs(cor.PC2.genes.rep) & abs(cor.PC1.genes.rep)>abs(cor.PC3.genes.rep), GRanges.PC$PC1 *ifelse(mneg.rep > mpos.rep,-1,1),NA)
   GRanges.PC$Compartment = ifelse(GRanges.PC$PC1bonsigne>0, "A", "B")
   return(GRanges.PC[,c("bras","Compartment")])
   }
