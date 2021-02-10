@@ -1,7 +1,22 @@
 library(rlist)
-hic.loops = read.table("/home/loic/Documents/HiC/allloops_HiCCUPS/enriched_pixels_10000.bedpe", header=T)
-peaks.NEU = import("/home/loic/Documents/HiC/code/Hi-C_analysis/NEU_DNAse.macs2_peaks.narrowPeak.sorted.candidateRegions.bed", format="bed")
+library(igraph)
+library(GenomicRanges)
+library(rtracklayer)
+library(org.Hs.eg.db)
+library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+library(plyr)
+library(GenomicFeatures)
+library(coin)
+library(ensembldb)
+library(EnsDb.Hsapiens.v86)
+library(ggpubr)
 
+setwd("/home/loic/Documents/HiC/data/export_3Dfeatures/NEU/")
+
+#Importation de l'ensemble des points de contact generes par Juicer
+hic.loops = read.table("/home/loic/Documents/HiC/allloops_HiCCUPS/enriched_pixels_10000.bedpe", header=T)
+#Peaks de DNAse (elements candidats generes dans le cadre du Score-ABC)
+peaks.NEU = import("/home/loic/Documents/HiC/code/Hi-C_analysis/NEU_DNAse.macs2_peaks.narrowPeak.sorted.candidateRegions.bed", format="bed")
 peaks.NEU = peaks.NEU[seqnames(peaks.NEU)%in%paste0("chr", 1:22)]
 
 GRanges.bin1 = GRanges(seqnames = hic.loops$chr1, ranges=IRanges(start=hic.loops$x1, end=hic.loops$x2))
@@ -12,6 +27,7 @@ Pairs.bins = Pairs(GRanges.bin1, GRanges.bin2,fdrBL = hic.loops$fdrBL ,fdrDonut 
 names(Pairs.bins) = paste0("bin", 1:length(Pairs.bins))
 names(peaks.NEU) = paste0("peak", 1:length(peaks.NEU))
 
+#Points de contact positifs
 positive.contact = Pairs.bins[mcols(Pairs.bins)$fdrBL <= 0.15&mcols(Pairs.bins)$fdrDonut <=0.15&mcols(Pairs.bins)$fdrV <= 0.15&mcols(Pairs.bins)$fdrH <=0.15]
 
 txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
