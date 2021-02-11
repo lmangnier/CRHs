@@ -21,6 +21,7 @@ library(kableExtra)
 library(sandwich)
 library(mice)
 
+library(ChIPseeker)
 set.seed(1258)
 setwd("/home/loic/Documents/HiC/data/4Script/NEU")
 source("HiCrn.R")
@@ -79,6 +80,64 @@ threshold = c(0.10,0.05,0.025,0.01,0.001,0.0001,0.00001,0.000001, 0.0000001)
 subset.SNPs.by.signi = lapply(threshold, function(x) GRanges.snps.SCZ3.clumped[GRanges.snps.SCZ3.clumped$pval<=x])
 subset.SNPs.by.nsigni = lapply(threshold, function(x) GRanges.snps.SCZ3.clumped[GRanges.snps.SCZ3.clumped$pval>x])
 
+txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
+peakAnno <- annotatePeak(peaks.NEU, tssRegion=c(-250, 250),
+                         TxDb=txdb, annoDb="org.Hs.eg.db", level="gene")
+
+
+unique.Regul.ABC.tmp = unique.Regul.ABC
+unique.Regul.ABC.tmp$annotation = "ABC Enhancer"
+unique.Regul.ABC.tmp$annotation_simplified = "ABC Enhancer"
+
+GRange.peakAnno = as.GRanges(peakAnno)
+GRange.peakAnno$annotation_simplified = ifelse(startsWith(GRange.peakAnno$annotation, "Exon"), "Exon",ifelse(startsWith(GRange.peakAnno$annotation, "Intron"), "Intron",GRange.peakAnno$annotation))
+
+overlaps.ABC.peaks = findOverlaps(GRange.peakAnno, unique.Regul.ABC)
+GRange.peakAnno.subset = GRange.peakAnno[-queryHits(overlaps.ABC.peaks)]
+
+GRange.peakAnno.subset = do.call(c, GRangesList(GRange.peakAnno.subset,unique.Regul.ABC.tmp))
+GRange.peakAnno.subset$nSNPs = countOverlaps(GRange.peakAnno.subset,GRanges.snps.SCZ3.clumped)
+
+unique(GRange.peakAnno.subset$annotation_simplified)
+aggregate(nSNPs~annotation_simplified, data.frame(GRange.peakAnno.subset), sum)$nSNPs/sum(aggregate(nSNPs~annotation_simplified, data.frame(GRange.peakAnno.subset), sum)$nSNPs)
+
+
+rew = lapply(1:length(threshold), function(x) {
+  GRange.peakAnno.subset$nSNPs_signi = countOverlaps(GRange.peakAnno.subset, subset.SNPs.by.signi[[x]])
+  GRange.peakAnno.subset$nSNPs_nsigni = countOverlaps(GRange.peakAnno.subset, subset.SNPs.by.nsigni[[x]])
+  
+  signi = aggregate(nSNPs_signi~annotation_simplified, data.frame(GRange.peakAnno.subset), sum)$nSNPs_signi
+  signi = signi[c(3,1,2,4,5,6,7,8,9,10)]
+  nsigni = aggregate(nSNPs_nsigni~annotation_simplified, data.frame(GRange.peakAnno.subset), sum)$nSNPs_nsigni
+  nsigni = nsigni[c(3,1,2,4,5,6,7,8,9,10)]
+  
+  names.ele = aggregate(nSNPs_signi~annotation_simplified, data.frame(GRange.peakAnno.subset), sum)$annotation_simplified
+  names.ele = names.ele[c(3,1,2,4,5,6,7,8,9,10)]
+  snps.tt = rbind(signi,nsigni)
+  colnames(snps.tt)= names.ele
+return(t(snps.tt))
+})
+
+rew.gene = lapply(1:length(threshold), function(x) {
+  GRange.peakAnno$nSNPs_signi = countOverlaps(GRange.peakAnno, subset.SNPs.by.signi[[x]])
+  GRange.peakAnno$nSNPs_nsigni = countOverlaps(GRange.peakAnno, subset.SNPs.by.nsigni[[x]])
+  
+  signi = aggregate(nSNPs_signi~annotation_simplified, data.frame(GRange.peakAnno), sum)$nSNPs_signi
+  signi = signi[c(3,1,2,4,5,6,7,8,9)]
+  nsigni = aggregate(nSNPs_nsigni~annotation_simplified, data.frame(GRange.peakAnno), sum)$nSNPs_nsigni
+  nsigni = nsigni[c(3,1,2,4,5,6,7,8,9)]
+  
+  names.ele = aggregate(nSNPs_signi~annotation_simplified, data.frame(GRange.peakAnno), sum)$annotation_simplified
+  names.ele = names.ele[c(3,1,2,4,5,6,7,8,9)]
+  snps.tt = rbind(signi,nsigni)
+  colnames(snps.tt)= names.ele
+  return(t(snps.tt))
+})
+
+
+memory.limit(size=250000)
+library(epitools)
+lapply(1:length(threshold), function(x) epitab(rew.gene[[x]], correction=T))
 
 #Ici pour chaque analyse d'enrichissement, on compare: 
 #Les elements de regulation ou promoters avec les ensembles equivalents
