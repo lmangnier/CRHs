@@ -71,7 +71,7 @@ promoters.candidates.DNAse = make.comparable.set(unique.Promoters.DNAse,method="
 
 
 #Fichier de variants clumpe
-SCZ3.all.clumped = read.table("input_data/Genetic/PGC3_SCZ_wave3_public.clumped.v2.tsv", header=T, fill = T)
+SCZ3.all.clumped = read.table("input_data/PGC3_SCZ_wave3_public.clumped.v2.tsv", header=T, fill = T)
 GRanges.snps.SCZ3.clumped = GRanges(seqnames=paste0("chr",SCZ3.all.clumped$CHR), ranges=IRanges(start=SCZ3.all.clumped$BP, end=SCZ3.all.clumped$BP, names=SCZ3.all.clumped$SNP), pval=SCZ3.all.clumped$P)
 
 #Differents seuils de significativite consideres
@@ -132,7 +132,8 @@ rew.gene = lapply(1:length(threshold), function(x) {
   snps.tt = rbind(signi,nsigni)
   colnames(snps.tt)= names.ele
   return(t(snps.tt))
-})
+}
+)
 
 
 memory.limit(size=250000)
@@ -179,7 +180,8 @@ SNPs.enrichment.ABC = lapply(1:length(threshold), function(x)
   
   
   return(list("regul" = c(e.regul, ci.regul), "prom"= c(e.prom, ci.prom), "CRN" = c(e.CRN,ci.CRN )))
-})
+}
+)
 
 table.enrichment.ABC = lapply(1:length(threshold), function(x)
 {
