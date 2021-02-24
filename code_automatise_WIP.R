@@ -200,6 +200,7 @@ GRanges.FIREs.signi = GRanges.FIREs[GRanges.FIREs$ScoreFire>=3]
 GRanges.FIREs.nsigni = GRanges.FIREs[GRanges.FIREs$ScoreFire<3]
 
 
+unique.Regul.ABC
 #Enrichment of regulatory elements in CRNs 
 Candidates.Signi.H3K27ac = import("Encode_crns/Encode_H3K27ac_signi.txt", format="bed")
 Candidates.NSigni.H3K27ac = import("Encode_crns/Encode_H3K27ac_nsigni.txt", format="bed")
@@ -494,10 +495,133 @@ asso.complexity.ABC = add.Complexity.RRCs(regul.promoters.ABC, method="ABC", dec
 asso.complexity.Rao = add.Complexity.RRCs(df.Rao, method="Rao", decompose.Rao)
 asso.complexity.DNAse = add.Complexity.RRCs(df.DNase, method="DNAse", decompose.DNAse)
 
+#Split Regul + Genes based on CRN size
+large.CRNs.ABC = asso.complexity.ABC[asso.complexity.ABC$TargetGene>=25,"membership"]
+medium.CRNs.ABC = asso.complexity.ABC[asso.complexity.ABC$TargetGene>= 3 & asso.complexity.ABC$TargetGene<25,"membership"]
+small.CRNs.ABC = asso.complexity.ABC[asso.complexity.ABC$TargetGene< 3,"membership"]
+
+large.ABC.Prom = unique.Promoters.ABC[names(unique.Promoters.ABC) %in% unique(regul.promoters.ABC[regul.promoters.ABC$membership%in%large.CRNs.ABC, "TargetGene"])]
+medium.ABC.Prom = unique.Promoters.ABC[names(unique.Promoters.ABC) %in% unique(regul.promoters.ABC[regul.promoters.ABC$membership%in%medium.CRNs.ABC, "TargetGene"])]
+small.ABC.Prom = unique.Promoters.ABC[names(unique.Promoters.ABC) %in% unique(regul.promoters.ABC[regul.promoters.ABC$membership%in%small.CRNs.ABC, "TargetGene"])]
+
+large.ABC.Regul = unique.Regul.ABC[names(unique.Regul.ABC) %in% unique(regul.promoters.ABC[regul.promoters.ABC$membership%in%large.CRNs.ABC, "name"])]
+medium.ABC.Regul = unique.Regul.ABC[names(unique.Regul.ABC) %in% unique(regul.promoters.ABC[regul.promoters.ABC$membership%in%medium.CRNs.ABC, "name"])]
+small.ABC.Regul = unique.Regul.ABC[names(unique.Regul.ABC) %in% unique(regul.promoters.ABC[regul.promoters.ABC$membership%in%small.CRNs.ABC, "name"])]
+
+export(do.call("c", GRangesList(large.ABC.Prom,large.ABC.Regul)), "Large_CRNs_ABC.bed", format="bed")
+export(do.call("c", GRangesList(medium.ABC.Prom,medium.ABC.Regul)), "Medium_CRNs_ABC.bed", format="bed")
+export(do.call("c", GRangesList(small.ABC.Prom,small.ABC.Regul)), "Small_CRNs_ABC.bed", format="bed")
+
+
+large.CRNs.Rao = asso.complexity.Rao[asso.complexity.Rao$geneSymbol.x>=3,"membership"]
+#medium.CRNs.Rao = asso.complexity.Rao[asso.complexity.Rao$TargetGene>= 3 & asso.complexity.Rao$TargetGene<25,"membership"]
+small.CRNs.Rao = asso.complexity.Rao[asso.complexity.Rao$geneSymbol.x< 3,"membership"]
+
+large.Rao.Prom = unique.Promoters.Rao[unique.Promoters.Rao$geneSymbol %in% unique(df.Rao[df.Rao$membership%in%large.CRNs.Rao, "geneSymbol.x"])]
+#medium.Rao.Prom = unique.Promoters.Rao[names(unique.Promoters.Rao) %in% unique(regul.promoters.Rao[regul.promoters.Rao$membership%in%medium.CRNs.Rao, "TargetGene"])]
+small.Rao.Prom = unique.Promoters.Rao[unique.Promoters.Rao$geneSymbol %in% unique(df.Rao[df.Rao$membership%in%small.CRNs.Rao, "geneSymbol.x"])]
+
+names(unique.Regul.Rao) = paste0(seqnames(unique.Regul.Rao),":",start(unique.Regul.Rao),":", end(unique.Regul.Rao))
+large.Rao.Regul = unique.Regul.Rao[names(unique.Regul.Rao) %in% unique(df.Rao[df.Rao$membership%in%large.CRNs.Rao, "name"])]
+#medium.Rao.Regul = unique.Regul.Rao[names(unique.Regul.Rao) %in% unique(regul.promoters.Rao[regul.promoters.Rao$membership%in%medium.CRNs.Rao, "name"])]
+small.Rao.Regul = unique.Regul.Rao[names(unique.Regul.Rao) %in% unique(df.Rao[df.Rao$membership%in%small.CRNs.Rao, "name"])]
+
+export(do.call("c", GRangesList(large.Rao.Prom,large.Rao.Regul)), "Large_CRNs_Rao.bed", format="bed")
+#export(do.call("c", GRangesList(medium.Rao.Prom,medium.Rao.Regul)), "Medium_CRNs_Rao.bed", format="bed")
+export(do.call("c", GRangesList(small.Rao.Prom,small.Rao.Regul)), "Small_CRNs_Rao.bed", format="bed")
+
+
+large.CRNs.DNAse = asso.complexity.DNAse[asso.complexity.DNAse$geneSymbol.x>=3,"membership"]
+#medium.CRNs.DNAse = asso.complexity.DNAse[asso.complexity.DNAse$TargetGene>= 3 & asso.complexity.DNAse$TargetGene<25,"membership"]
+small.CRNs.DNAse = asso.complexity.DNAse[asso.complexity.DNAse$geneSymbol.x< 3,"membership"]
+
+large.DNAse.Prom = unique.Promoters.DNAse[unique.Promoters.DNAse$geneSymbol %in% unique(df.DNase[df.DNase$membership%in%large.CRNs.DNAse, "geneSymbol.x"])]
+#medium.DNAse.Prom = unique.Promoters.DNAse[names(unique.Promoters.DNAse) %in% unique(regul.promoters.DNAse[regul.promoters.DNAse$membership%in%medium.CRNs.DNAse, "TargetGene"])]
+small.DNAse.Prom = unique.Promoters.DNAse[unique.Promoters.DNAse$geneSymbol %in% unique(df.DNase[df.DNase$membership%in%small.CRNs.DNAse, "geneSymbol.x"])]
+
+names(unique.Regul.DNAse) = paste0(seqnames(unique.Regul.DNAse),":",start(unique.Regul.DNAse),":", end(unique.Regul.DNAse))
+large.DNAse.Regul = unique.Regul.DNAse[names(unique.Regul.DNAse) %in% unique(df.DNase[df.DNase$membership%in%large.CRNs.DNAse, "name"])]
+#medium.DNAse.Regul = unique.Regul.DNAse[names(unique.Regul.DNAse) %in% unique(regul.promoters.DNAse[regul.promoters.DNAse$membership%in%medium.CRNs.DNAse, "name"])]
+small.DNAse.Regul = unique.Regul.DNAse[names(unique.Regul.DNAse) %in% unique(df.DNase[df.DNase$membership%in%small.CRNs.DNAse, "name"])]
+
+export(do.call("c", GRangesList(large.DNAse.Prom,large.DNAse.Regul)), "Large_CRNs_DNAse.bed", format="bed")
+#export(do.call("c", GRangesList(medium.DNAse.Prom,medium.DNAse.Regul)), "Medium_CRNs_DNAse.bed", format="bed")
+export(do.call("c", GRangesList(small.DNAse.Prom,small.DNAse.Regul)), "Small_CRNs_DNAse.bed", format="bed")
+
 
 asso.complexity.ABC.CS = CS.by.CRN(unique.Regul.ABC, chromatin.States, regul.promoters.ABC,asso.complexity.ABC,method="ABC")
+asso.complexity.ABC.CS[sapply(asso.complexity.ABC.CS, function(x) length(x) ==0)] = NA
+
+asso.complexity.ABC$max_CS = names(unlist(asso.complexity.ABC.CS))
+asso.complexity.ABC$max_CS[asso.complexity.ABC$max_CS ==""] = "Non-Identified"
+
+t.test.CS.ABC = lapply(unique(asso.complexity.ABC$max_CS)[unique(asso.complexity.ABC$max_CS)!="18_Quies"], function(x) wilcox.test(asso.complexity.ABC[asso.complexity.ABC$max_CS==x, "complexity"],asso.complexity.ABC[asso.complexity.ABC$max_CS=="18_Quies", "complexity"], alternative="greater")$p.value)
+names(t.test.CS.ABC) = unique(asso.complexity.ABC$max_CS)[unique(asso.complexity.ABC$max_CS)!="18_Quies"]
+df.t.test.CS.ABC = data.frame(do.call("rbind",t.test.CS.ABC))
+colnames(df.t.test.CS.ABC) = "p.value"
+df.t.test.CS.ABC$p.value.adjust = ifelse(df.t.test.CS.ABC$p.value*(nrow(df.t.test.CS.ABC)-1)>1, 1, df.t.test.CS.ABC$p.value*(nrow(df.t.test.CS.ABC)-1))
+
+stat.test <- tibble(group1 = "18_Quies", group2=rownames(df.t.test.CS.ABC),   p.adj =df.t.test.CS.ABC$p.value.adjust, y.position=1500 )
+
+q = ggboxplot(asso.complexity.ABC, x = "max_CS", y = "complexity",
+              add = "jitter", color = "max_CS", rotate=T)
+
+
+ggpar(q,ylab="Complexity", xlab="Most present Chromatine State", legend = "none")+stat_pvalue_manual(
+  stat.test,xmin="group2",
+  label = "p.adj"
+)
+ 
 asso.complexity.DNAse.CS = CS.by.CRN(unique.Regul.DNAse, chromatin.States, df.DNase,asso.complexity.DNAse,method="DNAse")
+
+asso.complexity.DNAse.CS[sapply(asso.complexity.DNAse.CS, function(x) length(x) ==0)] = NA
+
+asso.complexity.DNAse$max_CS = names(unlist(asso.complexity.DNAse.CS))
+asso.complexity.DNAse$max_CS[asso.complexity.DNAse$max_CS ==""] = "Non-Identified"
+
+t.test.CS.DNAse = lapply(unique(asso.complexity.DNAse$max_CS)[unique(asso.complexity.DNAse$max_CS)!="18_Quies"], function(x) ifelse(length(asso.complexity.DNAse[asso.complexity.DNAse$max_CS==x, "complexity"]) < 2,1, wilcox.test(asso.complexity.DNAse[asso.complexity.DNAse$max_CS==x, "complexity"],asso.complexity.DNAse[asso.complexity.DNAse$max_CS=="18_Quies", "complexity"], alternative="greater")$p.value))
+
+names(t.test.CS.DNAse) = unique(asso.complexity.DNAse$max_CS)[unique(asso.complexity.DNAse$max_CS)!="18_Quies"]
+df.t.test.CS.DNAse = data.frame(do.call("rbind",t.test.CS.DNAse))
+colnames(df.t.test.CS.DNAse) = "p.value"
+df.t.test.CS.DNAse$p.value.adjust = ifelse(df.t.test.CS.DNAse$p.value*(nrow(df.t.test.CS.DNAse)-1)>1, 1, df.t.test.CS.DNAse$p.value*(nrow(df.t.test.CS.DNAse)-1))
+
+stat.test <- tibble(group1 = "18_Quies", group2=rownames(df.t.test.CS.DNAse),   p.adj =df.t.test.CS.DNAse$p.value.adjust, y.position=150 )
+
+q = ggboxplot(asso.complexity.DNAse, x = "max_CS", y = "complexity",
+              add = "jitter", color = "max_CS", rotate=T)
+
+
+ggpar(q,ylab="Complexity", xlab="Most present Chromatine State", legend = "none")+stat_pvalue_manual(
+  stat.test,xmin="group2",
+  label = "p.adj"
+)
+
+
 asso.complexity.Rao.CS = CS.by.CRN(unique.Regul.Rao, chromatin.States, df.Rao,asso.complexity.Rao,method="Rao")
+
+asso.complexity.Rao.CS[sapply(asso.complexity.Rao.CS, function(x) length(x) ==0)] = NA
+
+asso.complexity.Rao$max_CS = names(unlist(asso.complexity.Rao.CS))
+asso.complexity.Rao$max_CS[asso.complexity.Rao$max_CS ==""] = "Non-Identified"
+
+t.test.CS.Rao = lapply(unique(asso.complexity.Rao$max_CS)[unique(asso.complexity.Rao$max_CS)!="18_Quies"], function(x) ifelse(length(asso.complexity.Rao[asso.complexity.Rao$max_CS==x, "complexity"]) < 2,1, wilcox.test(asso.complexity.Rao[asso.complexity.Rao$max_CS==x, "complexity"],asso.complexity.Rao[asso.complexity.Rao$max_CS=="18_Quies", "complexity"], alternative="greater")$p.value))
+
+names(t.test.CS.Rao) = unique(asso.complexity.Rao$max_CS)[unique(asso.complexity.Rao$max_CS)!="18_Quies"]
+df.t.test.CS.Rao = data.frame(do.call("rbind",t.test.CS.Rao))
+colnames(df.t.test.CS.Rao) = "p.value"
+df.t.test.CS.Rao$p.value.adjust = ifelse(df.t.test.CS.Rao$p.value*(nrow(df.t.test.CS.Rao)-1)>1, 1, df.t.test.CS.Rao$p.value*(nrow(df.t.test.CS.Rao)-1))
+
+stat.test <- tibble(group1 = "18_Quies", group2=rownames(df.t.test.CS.Rao),   p.adj =df.t.test.CS.Rao$p.value.adjust, y.position=150 )
+
+q = ggboxplot(asso.complexity.Rao, x = "max_CS", y = "complexity",
+              add = "jitter", color = "max_CS", rotate=T)
+
+
+ggpar(q,ylab="Complexity", xlab="Most present Chromatine State", legend = "none")+stat_pvalue_manual(
+  stat.test,xmin="group2",
+  label = "p.adj"
+)
 
 asso.complexity.ABC.tmp = asso.complexity.ABC
 asso.complexity.Rao.tmp = asso.complexity.Rao
@@ -1279,6 +1403,7 @@ saveRDS(SNPs.enrichment.Rao, "SNPs_enrichment_Rao.rds")
 saveRDS(table.enrichment.Rao, "table_enrichment_Rao.rds")
 
 
+
 SNPs.enrichment.DNAse = lapply(1:length(threshold), function(x)
 {
   signi.Regul.DNAse = sum(countOverlaps(unique.Regul.DNAse, subset.SNPs.by.signi[[x]]))
@@ -1354,6 +1479,17 @@ table.enrichment.DNAse = lapply(1:length(threshold), function(x)
 
 saveRDS(SNPs.enrichment.DNAse, "SNPs_enrichment_DNAse.rds")
 saveRDS(table.enrichment.DNAse, "table_enrichment_DNAse.rds")
+
+for(i in 1:length(threshold)) {
+  signi.peak = sum(countOverlaps(peaks.NEU, subset.SNPs.by.signi[[i]]))
+  nsigni.peak = sum(countOverlaps(peaks.NEU, subset.SNPs.by.nsigni[[i]]))
+  
+  signi.rest = (length(subset.SNPs.by.signi[[i]])-sum(countOverlaps(peaks.NEU, subset.SNPs.by.signi[[i]])))-
+    sum(countOverlaps(genes.hg19,subset.SNPs.by.signi[[i]]))
+  nsigni.rest = length(subset.SNPs.by.nsigni[[i]])-sum(countOverlaps(peaks.NEU, subset.SNPs.by.nsigni[[i]]))-
+    sum(countOverlaps(genes.hg19,subset.SNPs.by.nsigni[[i]]))
+  print(fisher.test(matrix(c(signi.peak,signi.rest,nsigni.peak,nsigni.rest), ncol=2), alternative="greater"))
+}
 
 
 names(SNPs.enrichment.ABC) = threshold

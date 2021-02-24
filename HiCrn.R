@@ -148,7 +148,7 @@ distance.between.Pairs = function(PairObject, absolute=T){
 coverage.By.Pair = function(PairObject) {
   start.Pair = sapply(PairObject, function(x) min(start(first(x)), start(second(x))))
   end.Pair = sapply(PairObject, function(x) max(end(first(x)), end(second(x))))
-  return(GRanges.Pair.ABC = GRanges(seqnames = seqnames(first(GRanges.Enhancers.Prom.RRCs)), ranges=IRanges(start.Pair, end.Pair, names=paste0("Pair",1:length(GRanges.Enhancers.Prom.RRCs)))))
+  return(GRanges.Pair.ABC = GRanges(seqnames = seqnames(first(PairObject)), ranges=IRanges(start.Pair, end.Pair, names=paste0("Pair",1:length(PairObject)))))
 }
 
 create.Crn = function(input, method=c("ABC", "Rao", "DNAse")) { 
@@ -236,12 +236,18 @@ add.membership = function(graph, df){
   
 }
 
-coverage.By.Crn = function(graph, df) { 
+coverage.By.Crn = function(graph, df, method=c("ABC", "Rao", "DNAse")) { 
     
     #df = add.membership(graph, df)
     
+  if(method=="ABC"){
     df$minStart = apply(df[,c("start", "startProm")], 1, min)
     df$maxEnd = apply(df[,c("end", "endProm")], 1, max)
+  }
+  else{
+    df$minStart = apply(df[,c("start.x", "start.y")], 1, min)
+    df$maxEnd = apply(df[,c("end.x", "end.y")], 1, max)
+  }
 
     start.cluster = aggregate(minStart~membership, df, min)
     end.cluster = aggregate(maxEnd~membership, df, max)
