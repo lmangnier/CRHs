@@ -24,21 +24,22 @@ library(mice)
 library(ChIPseeker)
 set.seed(1258)
 setwd("/home/loic/Documents/HiC/data/4Script/NEU")
+source("HiCrn.R")
 
 txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
 genes.hg19 <- genes(txdb)
 symbol <- select(org.Hs.eg.db,keys = genes.hg19$gene_id, columns = c("SYMBOL"), keytype = "ENTREZID")
 genes.hg19$geneSymbol <- symbol$SYMBOL
 
-regul.promoters.ABC = process.ABC("ABC/EnhancerPredictions.txt")
+regul.promoters.ABC = process.ABC("input_data/EnhancerPredictions.txt")
 # all.putative.ABC = read.table("ABC/EnhancerPredictionsAllPutative.txt.gz", header = T)
 # all.putative.ABC = all.putative.ABC[all.putative.ABC$chr!="chrX",]
 # 
 # all.putative.ABC.candidates = all.putative.ABC[!all.putative.ABC$name%in%regul.promoters.ABC$name&all.putative.ABC$class!="promoter",]
 
-hic.loops = read.table("allloops_HiCCUPS/enriched_pixels_10000.bedpe", header=T)
+hic.loops = read.table("input_data/enriched_pixels_10000.bedpe", header=T)
 
-peaks.NEU = import("Epigenetic/NEU_DNAse.macs2_peaks.narrowPeak.sorted.candidateRegions.bed", format="bed")
+peaks.NEU = import("input_data/NEU_DNAse.macs2_peaks.narrowPeak.sorted.candidateRegions.bed", format="bed")
 peaks.NEU = peaks.NEU[seqnames(peaks.NEU)%in%paste0("chr", 1:22)]
 
 GRanges.loops.bin1 = GRanges(seqnames = hic.loops$chr1, ranges=IRanges(start=hic.loops$x1, end=hic.loops$x2))
@@ -90,7 +91,7 @@ promoters.candidates.DNAse = make.comparable.set(unique.Promoters.DNAse,method="
 
 
 #Fichier de variants clumpe
-SCZ3.all.clumped = read.table("../Genetic/PGC3_SCZ_wave3_public.clumped.v2.tsv", header=T, fill = T)
+SCZ3.all.clumped = read.table("input_data/PGC3_SCZ_wave3_public.clumped.v2.tsv", header=T, fill = T)
 GRanges.snps.SCZ3.clumped = GRanges(seqnames=paste0("chr",SCZ3.all.clumped$CHR), ranges=IRanges(start=SCZ3.all.clumped$BP, end=SCZ3.all.clumped$BP, names=SCZ3.all.clumped$SNP), pval=SCZ3.all.clumped$P)
 
 commom.variants = read.table("allchrs_filter.bim", header=F)
@@ -223,7 +224,17 @@ enrichment.cand.DNAse = sapply(1:11, function(x) {
   
   b/background.beh.cand.DNAse
   
+<<<<<<< HEAD
 })
+=======
+  names.ele = aggregate(nSNPs_signi~annotation_simplified, data.frame(GRange.peakAnno), sum)$annotation_simplified
+  names.ele = names.ele[c(3,1,2,4,5,6,7,8,9)]
+  snps.tt = rbind(signi,nsigni)
+  colnames(snps.tt)= names.ele
+  return(t(snps.tt))
+}
+)
+>>>>>>> 456aa0bb94393e2e0ab4be6a7c34322811257f75
 
 df.fold.enrichment.ABC = cbind(threshold, data.frame(enrichment.cand.ABC),data.frame(enrichment.ABC))
 
@@ -624,7 +635,8 @@ SNPs.enrichment.ABC = lapply(1:length(threshold), function(x)
   
   
   return(list("regul" = c(e.regul, ci.regul), "prom"= c(e.prom, ci.prom), "CRN" = c(e.CRN,ci.CRN )))
-})
+}
+)
 
 table.enrichment.ABC = lapply(1:length(threshold), function(x)
 {
