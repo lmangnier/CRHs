@@ -13,7 +13,7 @@ library(lme4)
 library(PerformanceAnalytics)
 setwd("/home/loic/Documents/HiC/data/export_3Dfeatures/NEU/")
 
-enhancers.promoters = process.ABC("EnhancerPredictions.txt")
+enhancers.promoters = process.ABC("input_data/EnhancerPredictions.txt")
 GRanges.Enhancers.Prom.RRCs = Pairs.Enh.Prom.ABC(enhancers.promoters)
 
 summary(as.numeric(table(enhancers.promoters$name)))
